@@ -1,0 +1,21 @@
+/target/
+
+# Local user data and databases
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# OS and editor local files
+.DS_Store
+.idea/
+.vscode/
