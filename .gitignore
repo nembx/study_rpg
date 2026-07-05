@@ -1,5 +1,8 @@
 /target/
 
+# Private product notes
+设计.md
+
 # Local user data and databases
 data/
 *.db
