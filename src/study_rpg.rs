@@ -40,6 +40,14 @@ pub struct StudyRpg {
     next_session_id: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StudyRpgSnapshot {
+    pub player: Player,
+    pub skills: Vec<Skill>,
+    pub sessions: Vec<StudySession>,
+    pub daily_quests: Vec<Quest>,
+}
+
 impl StudyRpg {
     pub fn new(player_name: impl Into<String>, class: CharacterClass) -> Self {
         Self {
@@ -49,6 +57,29 @@ impl StudyRpg {
             daily_quests: default_daily_quests(),
             next_skill_id: 1,
             next_session_id: 1,
+        }
+    }
+
+    pub fn from_snapshot(snapshot: StudyRpgSnapshot) -> Self {
+        let next_skill_id = next_id(snapshot.skills.iter().map(|skill| skill.id));
+        let next_session_id = next_id(snapshot.sessions.iter().map(|session| session.id));
+
+        Self {
+            player: snapshot.player,
+            skills: snapshot.skills,
+            sessions: snapshot.sessions,
+            daily_quests: snapshot.daily_quests,
+            next_skill_id,
+            next_session_id,
+        }
+    }
+
+    pub fn snapshot(&self) -> StudyRpgSnapshot {
+        StudyRpgSnapshot {
+            player: self.player.clone(),
+            skills: self.skills.clone(),
+            sessions: self.sessions.clone(),
+            daily_quests: self.daily_quests.clone(),
         }
     }
 
@@ -62,6 +93,10 @@ impl StudyRpg {
 
     pub fn sessions(&self) -> &[StudySession] {
         &self.sessions
+    }
+
+    pub fn daily_quests(&self) -> &[Quest] {
+        &self.daily_quests
     }
 
     pub fn add_skill(&mut self, name: impl Into<String>, parent_id: Option<u64>) -> u64 {
@@ -134,6 +169,10 @@ fn default_daily_quests() -> Vec<Quest> {
     ]
 }
 
+fn next_id(ids: impl Iterator<Item = u64>) -> u64 {
+    ids.max().unwrap_or(0) + 1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,5 +211,31 @@ mod tests {
         assert_eq!(result.quest_reward_xp, 100);
         assert_eq!(app.dashboard().active_quests.len(), 0);
     }
-}
 
+    #[test]
+    fn restored_state_continues_allocating_ids_after_existing_records() {
+        let snapshot = StudyRpgSnapshot {
+            player: Player::new("Nembx", CharacterClass::Scholar),
+            skills: vec![Skill::new(7, "Rust", None)],
+            sessions: vec![StudySession {
+                id: 12,
+                topic: "Rust ownership".to_string(),
+                skill_id: Some(7),
+                duration_minutes: 25,
+                earned_xp: 40,
+            }],
+            daily_quests: default_daily_quests(),
+        };
+        let mut app = StudyRpg::from_snapshot(snapshot);
+
+        let next_skill = app.add_skill("SQLite", None);
+        let result = app.complete_study_session(StudySessionInput {
+            topic: "Persistence".to_string(),
+            skill_id: Some(next_skill),
+            duration_minutes: 10,
+        });
+
+        assert_eq!(next_skill, 8);
+        assert_eq!(result.session.id, 13);
+    }
+}

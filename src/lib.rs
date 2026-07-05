@@ -3,9 +3,10 @@ pub mod quest;
 pub mod session;
 pub mod skill;
 pub mod statistics;
+pub mod storage;
 pub mod study_rpg;
 pub mod xp;
 
 pub use player::{CharacterClass, Player};
+pub use storage::SqliteStore;
 pub use study_rpg::{Dashboard, StudyRpg, StudySessionInput, StudySessionResult};
-

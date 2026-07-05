@@ -64,13 +64,24 @@ src/
 
 ## 未来适配器
 
-V1 核心模块先保持纯 Rust、无外部依赖，便于测试。后续外层适配器：
+V1 核心模块先保持纯 Rust，便于测试。外层适配器：
 
 - `ui/gpui`: 桌面窗口、导航、Dashboard、Session 计时器
 - `storage/sqlite`: 通过 SQLite 读写玩家、技能、任务和学习记录
 - `assets`: 图标、字体、音效和头像资源
 
 持久化接口应该围绕整个 `StudyRpg` 状态读写，而不是把数据库细节泄漏到每个页面。
+
+当前已经实现 `SqliteStore`：
+
+```rust
+SqliteStore::open(path)
+SqliteStore::in_memory()
+SqliteStore::save(&app)
+SqliteStore::load()
+```
+
+`StudyRpg` 通过 `snapshot()` 和 `from_snapshot()` 与存储适配器协作。UI 不直接操作 SQLite 表，也不需要知道实体之间的保存顺序。
 
 ## 数据规则
 
@@ -86,4 +97,3 @@ Lv.4 -> Lv.5: 300 XP
 再往后使用递增曲线，保持无限等级。
 
 学习 XP 先按 `1 分钟 = 1.6 XP` 计算，25 分钟得到 40 XP，匹配设计文档示例。
-
