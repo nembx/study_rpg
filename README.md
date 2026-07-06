@@ -11,12 +11,13 @@ Study RPG 是一个 Local First 的学习成长软件。目标不是做另一个
 ## 当前能力
 
 - 创建玩家角色
+- 开始和结束学习计时器
 - 记录学习 Session
 - 按学习时长结算 XP
 - 根据总 XP 计算等级进度
 - 推进每日任务
 - 统计累计学习次数、时长和 XP
-- 使用 SQLite 保存和恢复本地状态
+- 使用 SQLite 保存和恢复本地状态，包括进行中的学习 Session
 
 ## 运行
 
@@ -75,12 +76,12 @@ src/
 
 - Rust 项目骨架
 - 核心成长循环
+- 学习计时器
 - SQLite 持久化
 - 基础测试
 
 下一步：
 
 - 接入桌面 UI
-- 增加学习计时器
 - 设计 Dashboard 数据展示
 - 继续完善 Daily Quest 和 Statistics

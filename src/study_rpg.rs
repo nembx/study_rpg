@@ -1,6 +1,8 @@
 use crate::player::{CharacterClass, Player, XpGrant};
 use crate::quest::{Quest, evaluate_quests};
-use crate::session::{StudySession, xp_for_duration};
+use crate::session::{
+    ActiveStudySession, StudySession, completed_minutes_between, xp_for_duration,
+};
 use crate::skill::Skill;
 use crate::statistics::StudyStatistics;
 use crate::xp::LevelProgress;
@@ -13,11 +15,24 @@ pub struct StudySessionInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StudySessionStartInput {
+    pub topic: String,
+    pub skill_id: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StudySessionResult {
     pub session: StudySession,
     pub player_xp: XpGrant,
     pub completed_quests: Vec<Quest>,
     pub quest_reward_xp: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StudyRpgError {
+    StudySessionAlreadyActive,
+    NoActiveStudySession,
+    StudySessionTooShort,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +43,7 @@ pub struct Dashboard {
     pub today_minutes: u32,
     pub total_sessions: u32,
     pub active_quests: Vec<Quest>,
+    pub active_session: Option<ActiveStudySession>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,6 +52,7 @@ pub struct StudyRpg {
     skills: Vec<Skill>,
     sessions: Vec<StudySession>,
     daily_quests: Vec<Quest>,
+    active_session: Option<ActiveStudySession>,
     next_skill_id: u64,
     next_session_id: u64,
 }
@@ -46,6 +63,7 @@ pub struct StudyRpgSnapshot {
     pub skills: Vec<Skill>,
     pub sessions: Vec<StudySession>,
     pub daily_quests: Vec<Quest>,
+    pub active_session: Option<ActiveStudySession>,
 }
 
 impl StudyRpg {
@@ -55,6 +73,7 @@ impl StudyRpg {
             skills: Vec::new(),
             sessions: Vec::new(),
             daily_quests: default_daily_quests(),
+            active_session: None,
             next_skill_id: 1,
             next_session_id: 1,
         }
@@ -69,6 +88,7 @@ impl StudyRpg {
             skills: snapshot.skills,
             sessions: snapshot.sessions,
             daily_quests: snapshot.daily_quests,
+            active_session: snapshot.active_session,
             next_skill_id,
             next_session_id,
         }
@@ -80,6 +100,7 @@ impl StudyRpg {
             skills: self.skills.clone(),
             sessions: self.sessions.clone(),
             daily_quests: self.daily_quests.clone(),
+            active_session: self.active_session.clone(),
         }
     }
 
@@ -99,6 +120,10 @@ impl StudyRpg {
         &self.daily_quests
     }
 
+    pub fn active_session(&self) -> Option<&ActiveStudySession> {
+        self.active_session.as_ref()
+    }
+
     pub fn add_skill(&mut self, name: impl Into<String>, parent_id: Option<u64>) -> u64 {
         let id = self.next_skill_id;
         self.next_skill_id += 1;
@@ -106,7 +131,63 @@ impl StudyRpg {
         id
     }
 
+    pub fn start_study_session(
+        &mut self,
+        input: StudySessionStartInput,
+        started_at_epoch_seconds: u64,
+    ) -> Result<ActiveStudySession, StudyRpgError> {
+        if self.active_session.is_some() {
+            return Err(StudyRpgError::StudySessionAlreadyActive);
+        }
+
+        let active_session = ActiveStudySession {
+            topic: input.topic,
+            skill_id: input.skill_id,
+            started_at_epoch_seconds,
+        };
+
+        self.active_session = Some(active_session.clone());
+
+        Ok(active_session)
+    }
+
+    pub fn finish_active_study_session(
+        &mut self,
+        ended_at_epoch_seconds: u64,
+    ) -> Result<StudySessionResult, StudyRpgError> {
+        let active_session = self
+            .active_session
+            .clone()
+            .ok_or(StudyRpgError::NoActiveStudySession)?;
+        let duration_minutes = completed_minutes_between(
+            active_session.started_at_epoch_seconds,
+            ended_at_epoch_seconds,
+        )
+        .ok_or(StudyRpgError::StudySessionTooShort)?;
+
+        self.active_session = None;
+
+        Ok(self.record_completed_session(
+            StudySessionInput {
+                topic: active_session.topic,
+                skill_id: active_session.skill_id,
+                duration_minutes,
+            },
+            Some(active_session.started_at_epoch_seconds),
+            Some(ended_at_epoch_seconds),
+        ))
+    }
+
     pub fn complete_study_session(&mut self, input: StudySessionInput) -> StudySessionResult {
+        self.record_completed_session(input, None, None)
+    }
+
+    fn record_completed_session(
+        &mut self,
+        input: StudySessionInput,
+        started_at_epoch_seconds: Option<u64>,
+        ended_at_epoch_seconds: Option<u64>,
+    ) -> StudySessionResult {
         let earned_xp = xp_for_duration(input.duration_minutes);
         let session = StudySession {
             id: self.next_session_id,
@@ -114,6 +195,8 @@ impl StudyRpg {
             skill_id: input.skill_id,
             duration_minutes: input.duration_minutes,
             earned_xp,
+            started_at_epoch_seconds,
+            ended_at_epoch_seconds,
         };
         self.next_session_id += 1;
 
@@ -154,6 +237,7 @@ impl StudyRpg {
                 .filter(|quest| !quest.completed)
                 .cloned()
                 .collect(),
+            active_session: self.active_session.clone(),
         }
     }
 
@@ -223,8 +307,11 @@ mod tests {
                 skill_id: Some(7),
                 duration_minutes: 25,
                 earned_xp: 40,
+                started_at_epoch_seconds: None,
+                ended_at_epoch_seconds: None,
             }],
             daily_quests: default_daily_quests(),
+            active_session: None,
         };
         let mut app = StudyRpg::from_snapshot(snapshot);
 
@@ -237,5 +324,64 @@ mod tests {
 
         assert_eq!(next_skill, 8);
         assert_eq!(result.session.id, 13);
+    }
+
+    #[test]
+    fn timed_session_finishes_through_the_core_loop() {
+        let mut app = StudyRpg::new("Nembx", CharacterClass::Scholar);
+        let rust = app.add_skill("Rust", None);
+
+        let active = app
+            .start_study_session(
+                StudySessionStartInput {
+                    topic: "Rust ownership".to_string(),
+                    skill_id: Some(rust),
+                },
+                1_000,
+            )
+            .unwrap();
+        assert_eq!(active.topic, "Rust ownership");
+        assert_eq!(app.active_session().unwrap().skill_id, Some(rust));
+
+        let result = app.finish_active_study_session(1_000 + 25 * 60).unwrap();
+
+        assert!(app.active_session().is_none());
+        assert_eq!(result.session.duration_minutes, 25);
+        assert_eq!(result.session.earned_xp, 40);
+        assert_eq!(result.session.started_at_epoch_seconds, Some(1_000));
+        assert_eq!(result.session.ended_at_epoch_seconds, Some(1_000 + 25 * 60));
+        assert_eq!(result.player_xp.gained_xp, 80);
+        assert_eq!(app.skills()[0].total_xp, 40);
+    }
+
+    #[test]
+    fn timer_rejects_double_start_and_too_short_sessions() {
+        let mut app = StudyRpg::new("Nembx", CharacterClass::Scholar);
+
+        app.start_study_session(
+            StudySessionStartInput {
+                topic: "Reading".to_string(),
+                skill_id: None,
+            },
+            1_000,
+        )
+        .unwrap();
+
+        assert_eq!(
+            app.start_study_session(
+                StudySessionStartInput {
+                    topic: "Second session".to_string(),
+                    skill_id: None,
+                },
+                1_010,
+            ),
+            Err(StudyRpgError::StudySessionAlreadyActive)
+        );
+
+        assert_eq!(
+            app.finish_active_study_session(1_030),
+            Err(StudyRpgError::StudySessionTooShort)
+        );
+        assert!(app.active_session().is_some());
     }
 }

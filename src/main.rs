@@ -1,14 +1,21 @@
-use study_rpg::{CharacterClass, StudyRpg, StudySessionInput};
+use study_rpg::{CharacterClass, StudyRpg, StudySessionStartInput};
 
 fn main() {
     let mut app = StudyRpg::new("Player", CharacterClass::Scholar);
     let rust_skill = app.add_skill("Rust", None);
 
-    let result = app.complete_study_session(StudySessionInput {
-        topic: "Rust ownership".to_string(),
-        skill_id: Some(rust_skill),
-        duration_minutes: 25,
-    });
+    app.start_study_session(
+        StudySessionStartInput {
+            topic: "Rust ownership".to_string(),
+            skill_id: Some(rust_skill),
+        },
+        1_000,
+    )
+    .expect("study session should start");
+
+    let result = app
+        .finish_active_study_session(1_000 + 25 * 60)
+        .expect("study session should finish");
 
     let dashboard = app.dashboard();
 

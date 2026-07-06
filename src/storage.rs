@@ -4,7 +4,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::player::{CharacterClass, Mood, Player};
 use crate::quest::{Quest, QuestTarget};
-use crate::session::StudySession;
+use crate::session::{ActiveStudySession, StudySession};
 use crate::skill::Skill;
 use crate::study_rpg::{StudyRpg, StudyRpgSnapshot};
 
@@ -33,6 +33,7 @@ impl SqliteStore {
         let snapshot = app.snapshot();
         let tx = self.conn.transaction()?;
 
+        tx.execute("DELETE FROM active_study_session", [])?;
         tx.execute("DELETE FROM quests", [])?;
         tx.execute("DELETE FROM study_sessions", [])?;
         tx.execute("DELETE FROM skills", [])?;
@@ -68,14 +69,17 @@ impl SqliteStore {
         for session in snapshot.sessions {
             tx.execute(
                 "INSERT INTO study_sessions
-                 (id, topic, skill_id, duration_minutes, earned_xp)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                 (id, topic, skill_id, duration_minutes, earned_xp,
+                  started_at_epoch_seconds, ended_at_epoch_seconds)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     session.id,
                     session.topic,
                     session.skill_id,
                     session.duration_minutes,
                     session.earned_xp,
+                    session.started_at_epoch_seconds,
+                    session.ended_at_epoch_seconds,
                 ],
             )?;
         }
@@ -93,6 +97,19 @@ impl SqliteStore {
                     target_value,
                     quest.reward_xp,
                     quest.completed,
+                ],
+            )?;
+        }
+
+        if let Some(active_session) = snapshot.active_session {
+            tx.execute(
+                "INSERT INTO active_study_session
+                 (id, topic, skill_id, started_at_epoch_seconds)
+                 VALUES (1, ?1, ?2, ?3)",
+                params![
+                    active_session.topic,
+                    active_session.skill_id,
+                    active_session.started_at_epoch_seconds,
                 ],
             )?;
         }
@@ -126,12 +143,14 @@ impl SqliteStore {
         let skills = self.load_skills()?;
         let sessions = self.load_sessions()?;
         let daily_quests = self.load_quests()?;
+        let active_session = self.load_active_session()?;
 
         Ok(Some(StudyRpg::from_snapshot(StudyRpgSnapshot {
             player,
             skills,
             sessions,
             daily_quests,
+            active_session,
         })))
     }
 
@@ -163,7 +182,9 @@ impl SqliteStore {
                 topic TEXT NOT NULL,
                 skill_id INTEGER,
                 duration_minutes INTEGER NOT NULL,
-                earned_xp INTEGER NOT NULL
+                earned_xp INTEGER NOT NULL,
+                started_at_epoch_seconds INTEGER,
+                ended_at_epoch_seconds INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS quests (
@@ -174,8 +195,43 @@ impl SqliteStore {
                 reward_xp INTEGER NOT NULL,
                 completed INTEGER NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS active_study_session (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                topic TEXT NOT NULL,
+                skill_id INTEGER,
+                started_at_epoch_seconds INTEGER NOT NULL
+            );
             ",
-        )
+        )?;
+
+        self.add_column_if_missing(
+            "study_sessions",
+            "started_at_epoch_seconds",
+            "INTEGER",
+        )?;
+        self.add_column_if_missing("study_sessions", "ended_at_epoch_seconds", "INTEGER")
+    }
+
+    fn add_column_if_missing(
+        &self,
+        table: &str,
+        column: &str,
+        definition: &str,
+    ) -> rusqlite::Result<()> {
+        let table_info_sql = format!("PRAGMA table_info({table})");
+        let mut stmt = self.conn.prepare(&table_info_sql)?;
+        let columns = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        if columns.iter().any(|existing| existing == column) {
+            return Ok(());
+        }
+
+        let alter_sql = format!("ALTER TABLE {table} ADD COLUMN {column} {definition}");
+        self.conn.execute(&alter_sql, [])?;
+        Ok(())
     }
 
     fn load_skills(&self) -> rusqlite::Result<Vec<Skill>> {
@@ -199,7 +255,8 @@ impl SqliteStore {
 
     fn load_sessions(&self) -> rusqlite::Result<Vec<StudySession>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, topic, skill_id, duration_minutes, earned_xp
+            "SELECT id, topic, skill_id, duration_minutes, earned_xp,
+                    started_at_epoch_seconds, ended_at_epoch_seconds
              FROM study_sessions
              ORDER BY id",
         )?;
@@ -211,6 +268,8 @@ impl SqliteStore {
                 skill_id: row.get(2)?,
                 duration_minutes: row.get(3)?,
                 earned_xp: row.get(4)?,
+                started_at_epoch_seconds: row.get(5)?,
+                ended_at_epoch_seconds: row.get(6)?,
             })
         })?
         .collect()
@@ -236,6 +295,24 @@ impl SqliteStore {
             })
         })?
         .collect()
+    }
+
+    fn load_active_session(&self) -> rusqlite::Result<Option<ActiveStudySession>> {
+        self.conn
+            .query_row(
+                "SELECT topic, skill_id, started_at_epoch_seconds
+                 FROM active_study_session
+                 WHERE id = 1",
+                [],
+                |row| {
+                    Ok(ActiveStudySession {
+                        topic: row.get(0)?,
+                        skill_id: row.get(1)?,
+                        started_at_epoch_seconds: row.get(2)?,
+                    })
+                },
+            )
+            .optional()
     }
 }
 
@@ -292,7 +369,7 @@ fn quest_target_from_parts(kind: &str, value: u32) -> QuestTarget {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::study_rpg::StudySessionInput;
+    use crate::study_rpg::{StudySessionInput, StudySessionStartInput};
 
     #[test]
     fn returns_none_when_no_player_has_been_saved() {
@@ -329,5 +406,38 @@ mod tests {
             duration_minutes: 10,
         });
         assert_eq!(result.session.id, 2);
+    }
+
+    #[test]
+    fn persists_and_restores_an_active_study_session() {
+        let mut store = SqliteStore::in_memory().unwrap();
+        let mut app = StudyRpg::new("Nembx", CharacterClass::Scholar);
+        let rust = app.add_skill("Rust", None);
+        app.start_study_session(
+            StudySessionStartInput {
+                topic: "Rust ownership".to_string(),
+                skill_id: Some(rust),
+            },
+            2_000,
+        )
+        .unwrap();
+
+        store.save(&app).unwrap();
+        let mut restored = store.load().unwrap().unwrap();
+
+        assert_eq!(
+            restored.active_session().unwrap(),
+            &ActiveStudySession {
+                topic: "Rust ownership".to_string(),
+                skill_id: Some(rust),
+                started_at_epoch_seconds: 2_000,
+            }
+        );
+
+        let result = restored
+            .finish_active_study_session(2_000 + 30 * 60)
+            .unwrap();
+        assert_eq!(result.session.duration_minutes, 30);
+        assert_eq!(result.session.started_at_epoch_seconds, Some(2_000));
     }
 }

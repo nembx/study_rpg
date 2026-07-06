@@ -12,6 +12,7 @@
 
 - 创建角色
 - 学习 Session 结算
+- 学习计时器
 - XP 和等级
 - Dashboard 所需聚合数据
 - Daily Quest 进度
@@ -20,7 +21,6 @@
 暂缓实现：
 
 - GPUI 完整视觉表现
-- SQLite 持久化
 - 技能树编辑器
 - 世界地图
 - 成就、宠物、装备、云同步
@@ -32,12 +32,15 @@
 ```rust
 StudyRpg::new(player_name, class)
 StudyRpg::add_skill(name, parent)
+StudyRpg::start_study_session(input, started_at)
+StudyRpg::finish_active_study_session(ended_at)
 StudyRpg::complete_study_session(input)
 StudyRpg::dashboard()
 ```
 
-调用方只提交一次学习结算，模块内部负责：
+调用方可以启动计时器，也可以手动提交一次学习结算。模块内部负责：
 
+- 维护进行中的学习 Session
 - 按学习时长计算 XP
 - 更新玩家等级和称号
 - 更新技能 XP
@@ -58,6 +61,7 @@ src/
 ├── session.rs
 ├── skill.rs
 ├── statistics.rs
+├── storage.rs
 ├── study_rpg.rs
 └── xp.rs
 ```
@@ -81,7 +85,7 @@ SqliteStore::save(&app)
 SqliteStore::load()
 ```
 
-`StudyRpg` 通过 `snapshot()` 和 `from_snapshot()` 与存储适配器协作。UI 不直接操作 SQLite 表，也不需要知道实体之间的保存顺序。
+`StudyRpg` 通过 `snapshot()` 和 `from_snapshot()` 与存储适配器协作。UI 不直接操作 SQLite 表，也不需要知道实体之间的保存顺序。进行中的 `ActiveStudySession` 也会进入 snapshot，应用重启后可以恢复计时状态。
 
 ## 数据规则
 

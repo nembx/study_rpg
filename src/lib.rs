@@ -8,5 +8,9 @@ pub mod study_rpg;
 pub mod xp;
 
 pub use player::{CharacterClass, Player};
+pub use session::{ActiveStudySession, StudySession};
 pub use storage::SqliteStore;
-pub use study_rpg::{Dashboard, StudyRpg, StudySessionInput, StudySessionResult};
+pub use study_rpg::{
+    Dashboard, StudyRpg, StudyRpgError, StudySessionInput, StudySessionResult,
+    StudySessionStartInput,
+};
