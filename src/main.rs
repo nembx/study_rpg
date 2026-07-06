@@ -27,4 +27,9 @@ fn main() {
         "Progress: {}/{} XP, today: {} minutes",
         dashboard.level.xp_into_level, dashboard.level.xp_for_next_level, dashboard.today_minutes
     );
+    println!(
+        "Quests: {}, recent sessions: {}",
+        dashboard.quest_progress.len(),
+        dashboard.recent_sessions.len()
+    );
 }
