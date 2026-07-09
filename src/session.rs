@@ -41,6 +41,10 @@ pub fn completed_minutes_between(
     Some(minutes.min(u32::MAX as u64) as u32)
 }
 
+pub fn epoch_day(epoch_seconds: u64) -> u64 {
+    epoch_seconds / 86_400
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

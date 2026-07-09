@@ -88,10 +88,11 @@ impl SqliteStore {
             let (target_kind, target_value) = quest_target_to_parts(quest.target);
             tx.execute(
                 "INSERT INTO quests
-                 (id, title, target_kind, target_value, reward_xp, completed)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                 (id, epoch_day, title, target_kind, target_value, reward_xp, completed)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     quest.id,
+                    quest.epoch_day,
                     quest.title,
                     target_kind,
                     target_value,
@@ -189,6 +190,7 @@ impl SqliteStore {
 
             CREATE TABLE IF NOT EXISTS quests (
                 id INTEGER PRIMARY KEY,
+                epoch_day INTEGER NOT NULL DEFAULT 0,
                 title TEXT NOT NULL,
                 target_kind TEXT NOT NULL,
                 target_value INTEGER NOT NULL,
@@ -210,7 +212,8 @@ impl SqliteStore {
             "started_at_epoch_seconds",
             "INTEGER",
         )?;
-        self.add_column_if_missing("study_sessions", "ended_at_epoch_seconds", "INTEGER")
+        self.add_column_if_missing("study_sessions", "ended_at_epoch_seconds", "INTEGER")?;
+        self.add_column_if_missing("quests", "epoch_day", "INTEGER NOT NULL DEFAULT 0")
     }
 
     fn add_column_if_missing(
@@ -277,21 +280,22 @@ impl SqliteStore {
 
     fn load_quests(&self) -> rusqlite::Result<Vec<Quest>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, title, target_kind, target_value, reward_xp, completed
+            "SELECT id, epoch_day, title, target_kind, target_value, reward_xp, completed
              FROM quests
              ORDER BY id",
         )?;
 
         stmt.query_map([], |row| {
-            let target_kind = row.get::<_, String>(2)?;
-            let target_value = row.get(3)?;
+            let target_kind = row.get::<_, String>(3)?;
+            let target_value = row.get(4)?;
 
             Ok(Quest {
                 id: row.get(0)?,
-                title: row.get(1)?,
+                epoch_day: row.get(1)?,
+                title: row.get(2)?,
                 target: quest_target_from_parts(&target_kind, target_value),
-                reward_xp: row.get(4)?,
-                completed: row.get(5)?,
+                reward_xp: row.get(5)?,
+                completed: row.get(6)?,
             })
         })?
         .collect()
@@ -398,6 +402,7 @@ mod tests {
         assert_eq!(restored.skills()[0].total_xp, 48);
         assert_eq!(restored.sessions()[0].topic, "Rust ownership");
         assert_eq!(restored.daily_quests().len(), 2);
+        assert_eq!(restored.daily_quests()[0].epoch_day, 0);
         assert!(restored.daily_quests().iter().all(|quest| quest.completed));
 
         let result = restored.complete_study_session(StudySessionInput {
@@ -439,5 +444,17 @@ mod tests {
             .unwrap();
         assert_eq!(result.session.duration_minutes, 30);
         assert_eq!(result.session.started_at_epoch_seconds, Some(2_000));
+    }
+
+    #[test]
+    fn persists_and_restores_daily_quest_day() {
+        let mut store = SqliteStore::in_memory().unwrap();
+        let mut app = StudyRpg::new("Nembx", CharacterClass::Scholar);
+        app.refresh_daily_quests_at(86_400 * 3);
+
+        store.save(&app).unwrap();
+        let restored = store.load().unwrap().unwrap();
+
+        assert!(restored.daily_quests().iter().all(|quest| quest.epoch_day == 3));
     }
 }

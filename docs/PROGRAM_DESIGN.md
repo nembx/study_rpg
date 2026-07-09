@@ -35,6 +35,7 @@ StudyRpg::add_skill(name, parent)
 StudyRpg::start_study_session(input, started_at)
 StudyRpg::finish_active_study_session(ended_at)
 StudyRpg::complete_study_session(input)
+StudyRpg::refresh_daily_quests_at(now)
 StudyRpg::dashboard()
 StudyRpg::dashboard_at(now)
 ```
@@ -42,6 +43,7 @@ StudyRpg::dashboard_at(now)
 调用方可以启动计时器，也可以手动提交一次学习结算。模块内部负责：
 
 - 维护进行中的学习 Session
+- 按日期生成和刷新每日任务
 - 按学习时长计算 XP
 - 更新玩家等级和称号
 - 更新技能 XP
@@ -55,7 +57,7 @@ Dashboard 当前聚合：
 
 - 玩家等级和 XP 进度百分比
 - 今日学习分钟数
-- 每日任务进度
+- 每日任务日期和进度
 - 最近学习记录
 - 进行中的学习 Session、已计时分钟和预计 XP
 

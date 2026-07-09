@@ -1,7 +1,7 @@
 use crate::player::{CharacterClass, Player, XpGrant};
 use crate::quest::{Quest, evaluate_quests, progress_for_quest};
 use crate::session::{
-    ActiveStudySession, StudySession, completed_minutes_between, xp_for_duration,
+    ActiveStudySession, StudySession, completed_minutes_between, epoch_day, xp_for_duration,
 };
 use crate::skill::Skill;
 use crate::statistics::StudyStatistics;
@@ -52,6 +52,7 @@ pub struct Dashboard {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DashboardQuest {
     pub id: u64,
+    pub epoch_day: u64,
     pub title: String,
     pub current: u32,
     pub target: u32,
@@ -156,6 +157,18 @@ impl StudyRpg {
         self.active_session.as_ref()
     }
 
+    pub fn refresh_daily_quests_at(&mut self, current_epoch_seconds: u64) -> bool {
+        let current_day = epoch_day(current_epoch_seconds);
+        if !self.daily_quests.is_empty()
+            && self.daily_quests.iter().all(|quest| quest.epoch_day == current_day)
+        {
+            return false;
+        }
+
+        self.daily_quests = default_daily_quests_for_day(current_day);
+        true
+    }
+
     pub fn add_skill(&mut self, name: impl Into<String>, parent_id: Option<u64>) -> u64 {
         let id = self.next_skill_id;
         self.next_skill_id += 1;
@@ -198,6 +211,7 @@ impl StudyRpg {
         .ok_or(StudyRpgError::StudySessionTooShort)?;
 
         self.active_session = None;
+        self.refresh_daily_quests_at(ended_at_epoch_seconds);
 
         Ok(self.record_completed_session(
             StudySessionInput {
@@ -293,6 +307,7 @@ impl StudyRpg {
                 let progress = progress_for_quest(quest, &self.sessions);
                 DashboardQuest {
                     id: quest.id,
+                    epoch_day: quest.epoch_day,
                     title: quest.title.clone(),
                     current: progress.current.min(progress.target),
                     target: progress.target,
@@ -365,9 +380,13 @@ impl StudyRpg {
 }
 
 fn default_daily_quests() -> Vec<Quest> {
+    default_daily_quests_for_day(0)
+}
+
+fn default_daily_quests_for_day(epoch_day: u64) -> Vec<Quest> {
     vec![
-        Quest::study_minutes(1, 30, 60),
-        Quest::complete_sessions(2, 1, 40),
+        Quest::study_minutes_for_day(1, epoch_day, 30, 60),
+        Quest::complete_sessions_for_day(2, epoch_day, 1, 40),
     ]
 }
 
@@ -389,10 +408,6 @@ fn elapsed_minutes_since(started_at_epoch_seconds: u64, current_epoch_seconds: u
     }
 
     ((current_epoch_seconds - started_at_epoch_seconds) / 60).min(u32::MAX as u64) as u32
-}
-
-fn epoch_day(epoch_seconds: u64) -> u64 {
-    epoch_seconds / 86_400
 }
 
 #[cfg(test)]
@@ -524,6 +539,42 @@ mod tests {
     }
 
     #[test]
+    fn refresh_daily_quests_replaces_stale_quests_for_the_current_day() {
+        let mut app = StudyRpg::new("Nembx", CharacterClass::Scholar);
+        app.complete_study_session(StudySessionInput {
+            topic: "Manual session".to_string(),
+            skill_id: None,
+            duration_minutes: 30,
+        });
+        assert!(app.daily_quests().iter().all(|quest| quest.completed));
+
+        assert!(app.refresh_daily_quests_at(86_400));
+
+        assert!(app.daily_quests().iter().all(|quest| quest.epoch_day == 1));
+        assert!(app.daily_quests().iter().all(|quest| !quest.completed));
+        assert_eq!(app.dashboard().quest_progress[0].current, 0);
+    }
+
+    #[test]
+    fn finishing_timed_session_refreshes_daily_quests_by_end_time() {
+        let mut app = StudyRpg::new("Nembx", CharacterClass::Scholar);
+
+        app.start_study_session(
+            StudySessionStartInput {
+                topic: "Day one study".to_string(),
+                skill_id: None,
+            },
+            86_400 + 10,
+        )
+        .unwrap();
+        app.finish_active_study_session(86_400 + 10 + 30 * 60)
+            .unwrap();
+
+        assert!(app.daily_quests().iter().all(|quest| quest.epoch_day == 1));
+        assert!(app.dashboard().quest_progress.iter().all(|quest| quest.completed));
+    }
+
+    #[test]
     fn dashboard_exposes_quest_progress_and_recent_sessions() {
         let mut app = StudyRpg::new("Nembx", CharacterClass::Scholar);
         let rust = app.add_skill("Rust", None);
@@ -544,6 +595,7 @@ mod tests {
         assert_eq!(dashboard.total_xp, 64);
         assert_eq!(dashboard.xp_progress_percent, 64);
         assert_eq!(dashboard.quest_progress[0].current, 15);
+        assert_eq!(dashboard.quest_progress[0].epoch_day, 0);
         assert_eq!(dashboard.quest_progress[0].target, 30);
         assert!(!dashboard.quest_progress[0].completed);
         assert!(dashboard.quest_progress[1].completed);
