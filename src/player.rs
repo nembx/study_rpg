@@ -72,4 +72,3 @@ fn title_for_level(level: u32) -> &'static str {
         _ => "Legendary Learner",
     }
 }
-

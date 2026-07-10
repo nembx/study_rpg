@@ -64,4 +64,3 @@ mod tests {
         assert_eq!(progress_from_total_xp(250).level, 3);
     }
 }
-

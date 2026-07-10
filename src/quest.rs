@@ -95,7 +95,10 @@ pub fn progress_for_target(target: QuestTarget, sessions: &[StudySession]) -> Qu
     match target {
         QuestTarget::StudyMinutes(target_minutes) => QuestProgress {
             quest_id: 0,
-            current: sessions.iter().map(|session| session.duration_minutes).sum(),
+            current: sessions
+                .iter()
+                .map(|session| session.duration_minutes)
+                .sum(),
             target: target_minutes,
             completed: sessions
                 .iter()
@@ -188,8 +191,7 @@ mod tests {
 
         let default_day =
             progress_for_quest(&Quest::study_minutes_for_day(1, 0, 30, 60), &sessions);
-        let later_day =
-            progress_for_quest(&Quest::study_minutes_for_day(1, 1, 30, 60), &sessions);
+        let later_day = progress_for_quest(&Quest::study_minutes_for_day(1, 1, 30, 60), &sessions);
 
         assert_eq!(default_day.current, 20);
         assert_eq!(later_day.current, 0);

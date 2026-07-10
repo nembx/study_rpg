@@ -30,16 +30,17 @@ impl StudyStatistics {
     pub fn from_sessions(sessions: &[StudySession]) -> Self {
         Self {
             total_sessions: sessions.len() as u32,
-            total_minutes: sessions.iter().map(|session| session.duration_minutes).sum(),
+            total_minutes: sessions
+                .iter()
+                .map(|session| session.duration_minutes)
+                .sum(),
             total_xp: sessions.iter().map(|session| session.earned_xp).sum(),
         }
     }
 
     fn add_session(&mut self, session: &StudySession) {
         self.total_sessions = self.total_sessions.saturating_add(1);
-        self.total_minutes = self
-            .total_minutes
-            .saturating_add(session.duration_minutes);
+        self.total_minutes = self.total_minutes.saturating_add(session.duration_minutes);
         self.total_xp = self.total_xp.saturating_add(session.earned_xp);
     }
 }
@@ -69,10 +70,7 @@ impl StudyStatisticsReport {
         for session in sessions {
             report.all_time.add_session(session);
 
-            let session_day = session
-                .ended_at_epoch_seconds
-                .map(epoch_day)
-                .unwrap_or(0);
+            let session_day = session.ended_at_epoch_seconds.map(epoch_day).unwrap_or(0);
             if session_day <= current_day {
                 study_days.insert(session_day);
             }
@@ -151,8 +149,7 @@ fn calendar_month(day: u64) -> (i64, u32) {
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
     let day_of_era = z - era * 146_097;
     let year_of_era =
-        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096)
-            / 365;
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
     let mut year = year_of_era + era * 400;
     let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
     let month_part = (5 * day_of_year + 2) / 153;

@@ -32,4 +32,3 @@ impl Skill {
             .min(100) as u8
     }
 }
-

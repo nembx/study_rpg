@@ -175,7 +175,10 @@ impl StudyRpg {
     pub fn refresh_daily_quests_at(&mut self, current_epoch_seconds: u64) -> bool {
         let current_day = epoch_day(current_epoch_seconds);
         if !self.daily_quests.is_empty()
-            && self.daily_quests.iter().all(|quest| quest.epoch_day == current_day)
+            && self
+                .daily_quests
+                .iter()
+                .all(|quest| quest.epoch_day == current_day)
         {
             return false;
         }
@@ -272,10 +275,10 @@ impl StudyRpg {
         self.next_session_id += 1;
 
         self.sessions.push(session.clone());
-        if let Some(skill_id) = session.skill_id {
-            if let Some(skill) = self.skills.iter_mut().find(|skill| skill.id == skill_id) {
-                skill.grant_xp(earned_xp);
-            }
+        if let Some(skill_id) = session.skill_id
+            && let Some(skill) = self.skills.iter_mut().find(|skill| skill.id == skill_id)
+        {
+            skill.grant_xp(earned_xp);
         }
 
         let completed_quests = evaluate_quests(&mut self.daily_quests, &self.sessions);
@@ -385,22 +388,20 @@ impl StudyRpg {
         &self,
         current_epoch_seconds: Option<u64>,
     ) -> Option<DashboardActiveSession> {
-        self.active_session
-            .as_ref()
-            .map(|active_session| {
-                let elapsed_minutes = current_epoch_seconds
-                    .map(|now| elapsed_minutes_since(active_session.started_at_epoch_seconds, now))
-                    .unwrap_or(0);
+        self.active_session.as_ref().map(|active_session| {
+            let elapsed_minutes = current_epoch_seconds
+                .map(|now| elapsed_minutes_since(active_session.started_at_epoch_seconds, now))
+                .unwrap_or(0);
 
-                DashboardActiveSession {
-                    topic: active_session.topic.clone(),
-                    skill_id: active_session.skill_id,
-                    skill_name: self.skill_name(active_session.skill_id),
-                    started_at_epoch_seconds: active_session.started_at_epoch_seconds,
-                    elapsed_minutes,
-                    estimated_xp: xp_for_duration(elapsed_minutes),
-                }
-            })
+            DashboardActiveSession {
+                topic: active_session.topic.clone(),
+                skill_id: active_session.skill_id,
+                skill_name: self.skill_name(active_session.skill_id),
+                started_at_epoch_seconds: active_session.started_at_epoch_seconds,
+                elapsed_minutes,
+                estimated_xp: xp_for_duration(elapsed_minutes),
+            }
+        })
     }
 
     fn skill_name(&self, skill_id: Option<u64>) -> Option<String> {
@@ -495,7 +496,12 @@ mod tests {
         assert_eq!(result.completed_quests.len(), 2);
         assert_eq!(result.daily_completion_bonus_xp, 150);
         assert_eq!(result.quest_reward_xp, 100);
-        assert!(app.dashboard().quest_progress.iter().all(|quest| quest.completed));
+        assert!(
+            app.dashboard()
+                .quest_progress
+                .iter()
+                .all(|quest| quest.completed)
+        );
     }
 
     #[test]
@@ -621,7 +627,12 @@ mod tests {
             .unwrap();
 
         assert!(app.daily_quests().iter().all(|quest| quest.epoch_day == 1));
-        assert!(app.dashboard().quest_progress.iter().all(|quest| quest.completed));
+        assert!(
+            app.dashboard()
+                .quest_progress
+                .iter()
+                .all(|quest| quest.completed)
+        );
     }
 
     #[test]
@@ -650,7 +661,10 @@ mod tests {
         assert!(!dashboard.quest_progress[0].completed);
         assert!(dashboard.quest_progress[1].completed);
         assert_eq!(dashboard.recent_sessions[0].topic, "Borrowing");
-        assert_eq!(dashboard.recent_sessions[0].skill_name, Some("Rust".to_string()));
+        assert_eq!(
+            dashboard.recent_sessions[0].skill_name,
+            Some("Rust".to_string())
+        );
         assert_eq!(dashboard.recent_sessions[1].topic, "Ownership");
     }
 

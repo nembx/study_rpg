@@ -221,11 +221,7 @@ impl SqliteStore {
             ",
         )?;
 
-        self.add_column_if_missing(
-            "study_sessions",
-            "started_at_epoch_seconds",
-            "INTEGER",
-        )?;
+        self.add_column_if_missing("study_sessions", "started_at_epoch_seconds", "INTEGER")?;
         self.add_column_if_missing("study_sessions", "ended_at_epoch_seconds", "INTEGER")?;
         self.add_column_if_missing("quests", "epoch_day", "INTEGER NOT NULL DEFAULT 0")
     }
@@ -481,6 +477,11 @@ mod tests {
         store.save(&app).unwrap();
         let restored = store.load().unwrap().unwrap();
 
-        assert!(restored.daily_quests().iter().all(|quest| quest.epoch_day == 3));
+        assert!(
+            restored
+                .daily_quests()
+                .iter()
+                .all(|quest| quest.epoch_day == 3)
+        );
     }
 }

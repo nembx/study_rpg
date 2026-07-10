@@ -1,6 +1,4 @@
-use study_rpg::{
-    CharacterClass, StudyRpg, StudySessionInput, StudySessionStartInput,
-};
+use study_rpg::{CharacterClass, StudyRpg, StudySessionInput, StudySessionStartInput};
 
 const DAY: u64 = 86_400;
 
@@ -49,7 +47,15 @@ fn statistics_report_includes_a_dense_seven_day_activity_series() {
 
     assert_eq!(
         activity,
-        vec![(28, 0), (29, 0), (30, 10), (31, 0), (32, 0), (33, 20), (34, 30)]
+        vec![
+            (28, 0),
+            (29, 0),
+            (30, 10),
+            (31, 0),
+            (32, 0),
+            (33, 20),
+            (34, 30)
+        ]
     );
 }
 
@@ -87,7 +93,10 @@ fn timestamped_manual_session_keeps_its_original_calendar_day() {
     assert_eq!(next_day.this_week.total_minutes, 10);
     assert_eq!(next_day.last_seven_days[5].statistics.total_minutes, 10);
     assert_eq!(two_days_later.today.total_minutes, 0);
-    assert_eq!(two_days_later.last_seven_days[4].statistics.total_minutes, 10);
+    assert_eq!(
+        two_days_later.last_seven_days[4].statistics.total_minutes,
+        10
+    );
 }
 
 fn record_session_at(app: &mut StudyRpg, epoch_day: u64, duration_minutes: u32) {
