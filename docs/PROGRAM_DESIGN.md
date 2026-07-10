@@ -35,9 +35,11 @@ StudyRpg::add_skill(name, parent)
 StudyRpg::start_study_session(input, started_at)
 StudyRpg::finish_active_study_session(ended_at)
 StudyRpg::complete_study_session(input)
+StudyRpg::complete_study_session_at(input, ended_at)
 StudyRpg::refresh_daily_quests_at(now)
 StudyRpg::dashboard()
 StudyRpg::dashboard_at(now)
+StudyRpg::statistics_at(now)
 ```
 
 调用方可以启动计时器，也可以手动提交一次学习结算。模块内部负责：
@@ -60,6 +62,14 @@ Dashboard 当前聚合：
 - 每日任务日期和进度
 - 最近学习记录
 - 进行中的学习 Session、已计时分钟和预计 XP
+
+Statistics 当前聚合：
+
+- 今日、本周（周一开始）、本月和累计的 Session 数、学习时长与 XP
+- 包含零值日期的最近七日趋势，供柱状图和折线图直接使用
+- 当前连续学习天数和历史最长连续学习天数
+
+日期分组和连续学习天数计算规则属于核心模块。UI 只消费 `statistics_at(now)` 返回的报告，不自行遍历 Session 或推导日历边界。
 
 ## 模块结构
 

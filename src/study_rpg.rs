@@ -4,7 +4,7 @@ use crate::session::{
     ActiveStudySession, StudySession, completed_minutes_between, epoch_day, xp_for_duration,
 };
 use crate::skill::Skill;
-use crate::statistics::StudyStatistics;
+use crate::statistics::{StudyStatistics, StudyStatisticsReport};
 use crate::xp::LevelProgress;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -228,6 +228,15 @@ impl StudyRpg {
         self.record_completed_session(input, None, None)
     }
 
+    pub fn complete_study_session_at(
+        &mut self,
+        input: StudySessionInput,
+        ended_at_epoch_seconds: u64,
+    ) -> StudySessionResult {
+        self.refresh_daily_quests_at(ended_at_epoch_seconds);
+        self.record_completed_session(input, None, Some(ended_at_epoch_seconds))
+    }
+
     fn record_completed_session(
         &mut self,
         input: StudySessionInput,
@@ -298,6 +307,10 @@ impl StudyRpg {
 
     pub fn statistics(&self) -> StudyStatistics {
         StudyStatistics::from_sessions(&self.sessions)
+    }
+
+    pub fn statistics_at(&self, current_epoch_seconds: u64) -> StudyStatisticsReport {
+        StudyStatisticsReport::from_sessions_at(&self.sessions, current_epoch_seconds)
     }
 
     fn dashboard_quests(&self) -> Vec<DashboardQuest> {
@@ -372,7 +385,7 @@ impl StudyRpg {
                 session
                     .ended_at_epoch_seconds
                     .map(|ended_at| epoch_day(ended_at) == current_day)
-                    .unwrap_or(true)
+                    .unwrap_or(current_day == 0)
             })
             .map(|session| session.duration_minutes)
             .sum()

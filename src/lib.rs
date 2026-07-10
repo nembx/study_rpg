@@ -9,6 +9,7 @@ pub mod xp;
 
 pub use player::{CharacterClass, Player};
 pub use session::{ActiveStudySession, StudySession};
+pub use statistics::{DailyStudyStatistics, StudyStatistics, StudyStatisticsReport};
 pub use storage::SqliteStore;
 pub use study_rpg::{
     Dashboard, DashboardActiveSession, DashboardQuest, DashboardSession, StudyRpg,
