@@ -7,6 +7,8 @@ use crate::skill::Skill;
 use crate::statistics::{StudyStatistics, StudyStatisticsReport};
 use crate::xp::LevelProgress;
 
+const DAILY_COMPLETION_BONUS_XP: u32 = 150;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StudySessionInput {
     pub topic: String,
@@ -25,6 +27,7 @@ pub struct StudySessionResult {
     pub session: StudySession,
     pub player_xp: XpGrant,
     pub completed_quests: Vec<Quest>,
+    pub daily_completion_bonus_xp: u32,
     pub quest_reward_xp: u32,
 }
 
@@ -45,8 +48,15 @@ pub struct Dashboard {
     pub today_minutes: u32,
     pub total_sessions: u32,
     pub quest_progress: Vec<DashboardQuest>,
+    pub daily_quest_completion: DashboardDailyQuestCompletion,
     pub recent_sessions: Vec<DashboardSession>,
     pub active_session: Option<DashboardActiveSession>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DashboardDailyQuestCompletion {
+    pub completed: bool,
+    pub reward_xp: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,6 +95,7 @@ pub struct StudyRpg {
     skills: Vec<Skill>,
     sessions: Vec<StudySession>,
     daily_quests: Vec<Quest>,
+    daily_completion_bonus_claimed: bool,
     active_session: Option<ActiveStudySession>,
     next_skill_id: u64,
     next_session_id: u64,
@@ -96,6 +107,7 @@ pub struct StudyRpgSnapshot {
     pub skills: Vec<Skill>,
     pub sessions: Vec<StudySession>,
     pub daily_quests: Vec<Quest>,
+    pub daily_completion_bonus_claimed: bool,
     pub active_session: Option<ActiveStudySession>,
 }
 
@@ -106,6 +118,7 @@ impl StudyRpg {
             skills: Vec::new(),
             sessions: Vec::new(),
             daily_quests: default_daily_quests(),
+            daily_completion_bonus_claimed: false,
             active_session: None,
             next_skill_id: 1,
             next_session_id: 1,
@@ -121,6 +134,7 @@ impl StudyRpg {
             skills: snapshot.skills,
             sessions: snapshot.sessions,
             daily_quests: snapshot.daily_quests,
+            daily_completion_bonus_claimed: snapshot.daily_completion_bonus_claimed,
             active_session: snapshot.active_session,
             next_skill_id,
             next_session_id,
@@ -133,6 +147,7 @@ impl StudyRpg {
             skills: self.skills.clone(),
             sessions: self.sessions.clone(),
             daily_quests: self.daily_quests.clone(),
+            daily_completion_bonus_claimed: self.daily_completion_bonus_claimed,
             active_session: self.active_session.clone(),
         }
     }
@@ -166,6 +181,7 @@ impl StudyRpg {
         }
 
         self.daily_quests = default_daily_quests_for_day(current_day);
+        self.daily_completion_bonus_claimed = false;
         true
     }
 
@@ -267,12 +283,26 @@ impl StudyRpg {
             .iter()
             .map(|quest| quest.reward_xp)
             .sum::<u32>();
-        let player_xp = self.player.grant_xp(earned_xp + quest_reward_xp);
+        let daily_completion_bonus_xp = if !self.daily_completion_bonus_claimed
+            && !self.daily_quests.is_empty()
+            && self.daily_quests.iter().all(|quest| quest.completed)
+        {
+            self.daily_completion_bonus_claimed = true;
+            DAILY_COMPLETION_BONUS_XP
+        } else {
+            0
+        };
+        let player_xp = self.player.grant_xp(
+            earned_xp
+                .saturating_add(quest_reward_xp)
+                .saturating_add(daily_completion_bonus_xp),
+        );
 
         StudySessionResult {
             session,
             player_xp,
             completed_quests,
+            daily_completion_bonus_xp,
             quest_reward_xp,
         }
     }
@@ -300,6 +330,11 @@ impl StudyRpg {
                 .unwrap_or(statistics.total_minutes),
             total_sessions: statistics.total_sessions,
             quest_progress: self.dashboard_quests(),
+            daily_quest_completion: DashboardDailyQuestCompletion {
+                completed: !self.daily_quests.is_empty()
+                    && self.daily_quests.iter().all(|quest| quest.completed),
+                reward_xp: DAILY_COMPLETION_BONUS_XP,
+            },
             recent_sessions: self.recent_sessions(5),
             active_session: self.dashboard_active_session(current_epoch_seconds),
         }
@@ -458,6 +493,7 @@ mod tests {
 
         assert_eq!(result.session.earned_xp, 48);
         assert_eq!(result.completed_quests.len(), 2);
+        assert_eq!(result.daily_completion_bonus_xp, 150);
         assert_eq!(result.quest_reward_xp, 100);
         assert!(app.dashboard().quest_progress.iter().all(|quest| quest.completed));
     }
@@ -477,6 +513,7 @@ mod tests {
                 ended_at_epoch_seconds: None,
             }],
             daily_quests: default_daily_quests(),
+            daily_completion_bonus_claimed: false,
             active_session: None,
         };
         let mut app = StudyRpg::from_snapshot(snapshot);

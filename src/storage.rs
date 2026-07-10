@@ -34,6 +34,7 @@ impl SqliteStore {
         let tx = self.conn.transaction()?;
 
         tx.execute("DELETE FROM active_study_session", [])?;
+        tx.execute("DELETE FROM daily_quest_state", [])?;
         tx.execute("DELETE FROM quests", [])?;
         tx.execute("DELETE FROM study_sessions", [])?;
         tx.execute("DELETE FROM skills", [])?;
@@ -102,6 +103,12 @@ impl SqliteStore {
             )?;
         }
 
+        tx.execute(
+            "INSERT INTO daily_quest_state (id, completion_bonus_claimed)
+             VALUES (1, ?1)",
+            [snapshot.daily_completion_bonus_claimed],
+        )?;
+
         if let Some(active_session) = snapshot.active_session {
             tx.execute(
                 "INSERT INTO active_study_session
@@ -144,6 +151,7 @@ impl SqliteStore {
         let skills = self.load_skills()?;
         let sessions = self.load_sessions()?;
         let daily_quests = self.load_quests()?;
+        let daily_completion_bonus_claimed = self.load_daily_completion_bonus_claimed()?;
         let active_session = self.load_active_session()?;
 
         Ok(Some(StudyRpg::from_snapshot(StudyRpgSnapshot {
@@ -151,6 +159,7 @@ impl SqliteStore {
             skills,
             sessions,
             daily_quests,
+            daily_completion_bonus_claimed,
             active_session,
         })))
     }
@@ -196,6 +205,11 @@ impl SqliteStore {
                 target_value INTEGER NOT NULL,
                 reward_xp INTEGER NOT NULL,
                 completed INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS daily_quest_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                completion_bonus_claimed INTEGER NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS active_study_session (
@@ -301,6 +315,18 @@ impl SqliteStore {
         .collect()
     }
 
+    fn load_daily_completion_bonus_claimed(&self) -> rusqlite::Result<bool> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT completion_bonus_claimed FROM daily_quest_state WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(false))
+    }
+
     fn load_active_session(&self) -> rusqlite::Result<Option<ActiveStudySession>> {
         self.conn
             .query_row(
@@ -397,7 +423,7 @@ mod tests {
         let mut restored = store.load().unwrap().unwrap();
 
         assert_eq!(restored.player().name, "Nembx");
-        assert_eq!(restored.player().total_xp, 148);
+        assert_eq!(restored.player().total_xp, 298);
         assert_eq!(restored.skills()[0].name, "Rust");
         assert_eq!(restored.skills()[0].total_xp, 48);
         assert_eq!(restored.sessions()[0].topic, "Rust ownership");

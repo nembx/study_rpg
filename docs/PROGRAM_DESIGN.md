@@ -50,6 +50,7 @@ StudyRpg::statistics_at(now)
 - 更新玩家等级和称号
 - 更新技能 XP
 - 推进每日任务
+- 当天任务全部完成时自动发放一次 150 XP 全清奖励
 - 记录 Session
 - 生成 Dashboard/Statistics 聚合数据
 
@@ -60,6 +61,7 @@ Dashboard 当前聚合：
 - 玩家等级和 XP 进度百分比
 - 今日学习分钟数
 - 每日任务日期和进度
+- 每日任务是否全清以及全清奖励 XP
 - 最近学习记录
 - 进行中的学习 Session、已计时分钟和预计 XP
 
@@ -107,6 +109,9 @@ SqliteStore::load()
 ```
 
 `StudyRpg` 通过 `snapshot()` 和 `from_snapshot()` 与存储适配器协作。UI 不直接操作 SQLite 表，也不需要知道实体之间的保存顺序。进行中的 `ActiveStudySession` 也会进入 snapshot，应用重启后可以恢复计时状态。
+
+每日任务全清奖励会自动结算，并在 snapshot 中记录当天是否已经发放。刷新到新日期时该状态重置；SQLite 恢复后则继续保持，避免同一天重复领取奖励。
+`StudySessionResult` 分别返回单项任务奖励 `quest_reward_xp` 和全清奖励 `daily_completion_bonus_xp`，调用方将两者作为独立反馈展示。
 
 ## 数据规则
 
