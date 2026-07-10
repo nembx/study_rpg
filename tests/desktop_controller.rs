@@ -1,5 +1,8 @@
 use study_rpg::{CharacterClass, DesktopController, SqliteStore};
 
+#[cfg(unix)]
+use study_rpg::DesktopError;
+
 #[test]
 fn desktop_controller_starts_a_study_session_from_the_topic_input() {
     let store = SqliteStore::in_memory().unwrap();
@@ -62,4 +65,36 @@ fn desktop_controller_restores_an_active_session_from_local_storage() {
     }
 
     std::fs::remove_file(database_path).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn desktop_controller_rolls_back_a_session_when_local_storage_fails() {
+    let database_directory = std::env::temp_dir().join(format!(
+        "study-rpg-unavailable-storage-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir(&database_directory).unwrap();
+    let database_path = database_directory.join("study-rpg.sqlite3");
+    let store = SqliteStore::open(&database_path).unwrap();
+    let mut desktop =
+        DesktopController::load_or_create(store, "Nembx", CharacterClass::Scholar, 3_000).unwrap();
+
+    std::fs::remove_file(database_path).unwrap();
+    std::fs::remove_dir(database_directory).unwrap();
+
+    let error = desktop.start_session("Must persist", 3_000).unwrap_err();
+
+    assert!(matches!(error, DesktopError::Storage(_)));
+    assert!(
+        desktop
+            .dashboard_at(3_000)
+            .unwrap()
+            .active_session
+            .is_none()
+    );
 }

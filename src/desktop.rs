@@ -41,6 +41,7 @@ impl DesktopController {
             return Err(DesktopError::EmptyTopic);
         }
 
+        let previous_app = self.app.clone();
         self.app.start_study_session(
             StudySessionStartInput {
                 topic: topic.to_string(),
@@ -48,14 +49,13 @@ impl DesktopController {
             },
             started_at_epoch_seconds,
         )?;
-        self.store.save(&self.app)?;
-
-        Ok(())
+        self.save_or_restore(previous_app)
     }
 
     pub fn dashboard_at(&mut self, current_epoch_seconds: u64) -> Result<Dashboard, DesktopError> {
+        let previous_app = self.app.clone();
         if self.app.refresh_daily_quests_at(current_epoch_seconds) {
-            self.store.save(&self.app)?;
+            self.save_or_restore(previous_app)?;
         }
 
         Ok(self.app.dashboard_at(current_epoch_seconds))
@@ -65,12 +65,22 @@ impl DesktopController {
         &mut self,
         ended_at_epoch_seconds: u64,
     ) -> Result<StudySessionResult, DesktopError> {
+        let previous_app = self.app.clone();
         let result = self
             .app
             .finish_active_study_session(ended_at_epoch_seconds)?;
-        self.store.save(&self.app)?;
+        self.save_or_restore(previous_app)?;
 
         Ok(result)
+    }
+
+    fn save_or_restore(&mut self, previous_app: StudyRpg) -> Result<(), DesktopError> {
+        if let Err(error) = self.store.save(&self.app) {
+            self.app = previous_app;
+            return Err(error.into());
+        }
+
+        Ok(())
     }
 }
 
