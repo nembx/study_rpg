@@ -21,12 +21,15 @@ Study RPG 是一个 Local First 的学习成长软件。目标不是做另一个
 - 生成最近七日学习趋势，并计算当前及历史最长连续学习天数
 - 生成 Dashboard 聚合数据，包括任务进度、最近学习记录和进行中的学习估算
 - 使用 SQLite 保存和恢复本地状态，包括进行中的学习 Session
+- 提供本地桌面 Dashboard，可开始/结束学习计时、查看等级、任务和最近记录
 
 ## 运行
 
 ```bash
 cargo run
 ```
+
+首次运行会创建 `data/study_rpg.sqlite3`。之后再次启动会恢复玩家进度和未结束的学习计时器。
 
 运行测试：
 
@@ -46,6 +49,8 @@ cargo check
 
 ```text
 src/
+├── desktop.rs     # 桌面控制器，连接 UI、核心循环和本地持久化
+├── desktop_ui.rs  # eframe/egui 桌面 Dashboard
 ├── player.rs      # 玩家、职业、称号和 XP 授予
 ├── quest.rs       # 每日任务和任务进度
 ├── session.rs     # 学习 Session 和基础 XP 计算
@@ -83,9 +88,10 @@ src/
 - 每日任务按日期刷新
 - Dashboard 聚合数据
 - SQLite 持久化
+- 桌面 Dashboard 与学习计时交互
 - 基础测试
 
 下一步：
 
-- 接入桌面 UI
-- 继续完善 Daily Quest 和统计图表展示
+- 增加 Statistics 页面和趋势图表
+- 继续完善 Daily Quest 的视觉反馈

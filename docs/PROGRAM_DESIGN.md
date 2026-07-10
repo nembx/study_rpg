@@ -20,7 +20,7 @@
 
 暂缓实现：
 
-- GPUI 完整视觉表现
+- 完整多页面视觉表现
 - 技能树编辑器
 - 世界地图
 - 成就、宠物、装备、云同步
@@ -77,6 +77,8 @@ Statistics 当前聚合：
 
 ```text
 src/
+├── desktop.rs
+├── desktop_ui.rs
 ├── lib.rs
 ├── main.rs
 ├── player.rs
@@ -89,13 +91,15 @@ src/
 └── xp.rs
 ```
 
-## 未来适配器
+## 外层适配器
 
-V1 核心模块先保持纯 Rust，便于测试。外层适配器：
+V1 核心模块保持纯 Rust，便于测试。当前外层适配器：
 
-- `ui/gpui`: 桌面窗口、导航、Dashboard、Session 计时器
-- `storage/sqlite`: 通过 SQLite 读写玩家、技能、任务和学习记录
-- `assets`: 图标、字体、音效和头像资源
+- `desktop_ui`: 使用 eframe/egui 提供桌面窗口、Dashboard 和 Session 计时器
+- `desktop`: 在 UI 与核心循环之间协调命令，并在状态变化后保存快照
+- `storage`: 通过 SQLite 读写完整的 `StudyRpg` 状态
+
+未来可以替换视觉框架或拆分更多页面，但核心接口和 SQLite 快照边界不随 UI 技术变化。
 
 持久化接口应该围绕整个 `StudyRpg` 状态读写，而不是把数据库细节泄漏到每个页面。
 

@@ -1,35 +1,48 @@
-use study_rpg::{CharacterClass, StudyRpg, StudySessionStartInput};
+mod desktop_ui;
 
-fn main() {
-    let mut app = StudyRpg::new("Player", CharacterClass::Scholar);
-    let rust_skill = app.add_skill("Rust", None);
+use std::error::Error;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-    app.start_study_session(
-        StudySessionStartInput {
-            topic: "Rust ownership".to_string(),
-            skill_id: Some(rust_skill),
-        },
-        1_000,
-    )
-    .expect("study session should start");
+use eframe::egui;
+use study_rpg::{CharacterClass, DesktopController, SqliteStore};
 
-    let result = app
-        .finish_active_study_session(1_000 + 25 * 60)
-        .expect("study session should finish");
+use crate::desktop_ui::StudyRpgDesktopApp;
 
-    let dashboard = app.dashboard();
+fn main() -> Result<(), Box<dyn Error>> {
+    std::fs::create_dir_all("data")?;
+    let store = SqliteStore::open("data/study_rpg.sqlite3")?;
+    let controller = DesktopController::load_or_create(
+        store,
+        "Player",
+        CharacterClass::Scholar,
+        current_epoch_seconds(),
+    )?;
 
-    println!(
-        "{} Lv.{} - {} XP gained",
-        dashboard.player_name, dashboard.level.level, result.player_xp.gained_xp
-    );
-    println!(
-        "Progress: {}/{} XP, today: {} minutes",
-        dashboard.level.xp_into_level, dashboard.level.xp_for_next_level, dashboard.today_minutes
-    );
-    println!(
-        "Quests: {}, recent sessions: {}",
-        dashboard.quest_progress.len(),
-        dashboard.recent_sessions.len()
-    );
+    let native_options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1_180.0, 760.0])
+            .with_min_inner_size([900.0, 600.0]),
+        centered: true,
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "Study RPG",
+        native_options,
+        Box::new(move |creation_context| {
+            Ok(Box::new(StudyRpgDesktopApp::new(
+                controller,
+                creation_context,
+            )))
+        }),
+    )?;
+
+    Ok(())
+}
+
+fn current_epoch_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
