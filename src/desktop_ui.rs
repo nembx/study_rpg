@@ -102,8 +102,9 @@ impl StudyRpgDesktopApp {
                         ui.label(RichText::new(&active.topic).strong().size(22.0));
                         ui.label(
                             RichText::new(format!(
-                                "{} min elapsed · estimated +{} XP",
-                                active.elapsed_minutes, active.estimated_xp
+                                "{} elapsed · estimated +{} XP",
+                                elapsed_timer_text(active.started_at_epoch_seconds, now),
+                                active.estimated_xp
                             ))
                             .color(MUTED),
                         );
@@ -362,6 +363,19 @@ fn current_epoch_seconds() -> u64 {
         .as_secs()
 }
 
+fn elapsed_timer_text(started_at_epoch_seconds: u64, current_epoch_seconds: u64) -> String {
+    let elapsed_seconds = current_epoch_seconds.saturating_sub(started_at_epoch_seconds);
+    let hours = elapsed_seconds / 3_600;
+    let minutes = (elapsed_seconds % 3_600) / 60;
+    let seconds = elapsed_seconds % 60;
+
+    if hours == 0 {
+        format!("{minutes:02}:{seconds:02}")
+    } else {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    }
+}
+
 fn session_completion_message(
     duration_minutes: u32,
     study_xp: u32,
@@ -428,7 +442,13 @@ fn install_system_cjk_font(context: &egui::Context) {
 
 #[cfg(test)]
 mod tests {
-    use super::session_completion_message;
+    use super::{elapsed_timer_text, session_completion_message};
+
+    #[test]
+    fn active_timer_feedback_includes_running_seconds() {
+        assert_eq!(elapsed_timer_text(1_000, 1_000 + 25 * 60 + 3), "25:03");
+        assert_eq!(elapsed_timer_text(1_000, 1_000 + 60 * 60), "1:00:00");
+    }
 
     #[test]
     fn session_completion_feedback_keeps_reward_sources_separate() {
