@@ -98,17 +98,17 @@ pub enum DesktopError {
 impl Display for DesktopError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::EmptyTopic => formatter.write_str("Enter a study topic first"),
+            Self::EmptyTopic => formatter.write_str("请先输入学习主题"),
             Self::StudyRpg(StudyRpgError::StudySessionAlreadyActive) => {
-                formatter.write_str("A study session is already active")
+                formatter.write_str("已有正在进行的学习计时")
             }
             Self::StudyRpg(StudyRpgError::NoActiveStudySession) => {
-                formatter.write_str("No study session is active")
+                formatter.write_str("当前没有正在进行的学习计时")
             }
             Self::StudyRpg(StudyRpgError::StudySessionTooShort) => {
-                formatter.write_str("Study for at least one complete minute")
+                formatter.write_str("至少学习满一分钟后才能结算")
             }
-            Self::Storage(error) => write!(formatter, "Could not save local data: {error}"),
+            Self::Storage(error) => write!(formatter, "无法保存本地数据：{error}"),
         }
     }
 }

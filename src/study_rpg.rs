@@ -42,6 +42,7 @@ pub enum StudyRpgError {
 pub struct Dashboard {
     pub player_name: String,
     pub title: String,
+    pub energy: u8,
     pub level: LevelProgress,
     pub total_xp: u32,
     pub xp_progress_percent: u8,
@@ -325,6 +326,7 @@ impl StudyRpg {
         Dashboard {
             player_name: self.player.name.clone(),
             title: self.player.title.clone(),
+            energy: self.player.energy,
             level,
             total_xp: self.player.total_xp,
             xp_progress_percent: xp_progress_percent(level),
@@ -666,6 +668,13 @@ mod tests {
             Some("Rust".to_string())
         );
         assert_eq!(dashboard.recent_sessions[1].topic, "Ownership");
+    }
+
+    #[test]
+    fn dashboard_exposes_player_energy() {
+        let app = StudyRpg::new("Nembx", CharacterClass::Scholar);
+
+        assert_eq!(app.dashboard().energy, 100);
     }
 
     #[test]

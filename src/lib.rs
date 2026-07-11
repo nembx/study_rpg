@@ -9,7 +9,7 @@ pub mod study_rpg;
 pub mod xp;
 
 pub use desktop::{DesktopController, DesktopError};
-pub use player::{CharacterClass, Player};
+pub use player::{CharacterClass, MAX_ENERGY, Player};
 pub use session::{ActiveStudySession, StudySession};
 pub use statistics::{CalendarDate, DailyStudyStatistics, StudyStatistics, StudyStatisticsReport};
 pub use storage::SqliteStore;

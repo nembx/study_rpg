@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let store = SqliteStore::open("data/study_rpg.sqlite3")?;
     let controller = DesktopController::load_or_create(
         store,
-        "Player",
+        "玩家",
         CharacterClass::Scholar,
         current_epoch_seconds(),
     )?;
@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     eframe::run_native(
-        "Study RPG",
+        "学习冒险",
         native_options,
         Box::new(move |creation_context| {
             Ok(Box::new(StudyRpgDesktopApp::new(

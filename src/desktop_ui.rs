@@ -2,12 +2,15 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use eframe::egui::{self, Color32, FontData, FontDefinitions, FontFamily, RichText, Stroke};
-use study_rpg::{Dashboard, DesktopController, StudyStatistics, StudyStatisticsReport};
+use study_rpg::{Dashboard, DesktopController, MAX_ENERGY, StudyStatistics, StudyStatisticsReport};
 
 const BACKGROUND: Color32 = Color32::from_rgb(12, 16, 28);
+const SIDEBAR: Color32 = Color32::from_rgb(15, 20, 34);
 const PANEL: Color32 = Color32::from_rgb(24, 30, 48);
 const PANEL_HOVER: Color32 = Color32::from_rgb(31, 39, 61);
 const ACCENT: Color32 = Color32::from_rgb(250, 190, 72);
+const BLUE: Color32 = Color32::from_rgb(102, 166, 255);
+const PURPLE: Color32 = Color32::from_rgb(174, 132, 255);
 const SUCCESS: Color32 = Color32::from_rgb(91, 214, 145);
 const DANGER: Color32 = Color32::from_rgb(244, 112, 128);
 const MUTED: Color32 = Color32::from_rgb(155, 166, 190);
@@ -47,68 +50,132 @@ impl StudyRpgDesktopApp {
     }
 
     fn render_header(ui: &mut egui::Ui, dashboard: &Dashboard) {
-        ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                ui.label(RichText::new("STUDY RPG").color(ACCENT).strong().size(14.0));
-                ui.label(
-                    RichText::new(format!("Welcome back, {}", dashboard.player_name))
-                        .strong()
-                        .size(30.0),
-                );
-                ui.label(RichText::new(&dashboard.title).color(MUTED).size(15.0));
-            });
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                egui::Frame::new()
-                    .fill(PANEL)
-                    .corner_radius(12.0)
-                    .inner_margin(14.0)
-                    .show(ui, |ui| {
+        egui::Frame::new()
+            .fill(Color32::from_rgb(28, 35, 57))
+            .stroke(Stroke::new(1.0, ACCENT.gamma_multiply(0.35)))
+            .corner_radius(16.0)
+            .inner_margin(20.0)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new("今日冒险").color(ACCENT).strong().size(13.0));
                         ui.label(
-                            RichText::new(format!("LV. {}", dashboard.level.level))
-                                .color(ACCENT)
-                                .strong()
-                                .size(22.0),
+                            RichText::new(format!(
+                                "欢迎回来，{}",
+                                localized_player_name(&dashboard.player_name)
+                            ))
+                            .strong()
+                            .size(30.0),
+                        );
+                        ui.label(
+                            RichText::new(localized_title(&dashboard.title))
+                                .color(MUTED)
+                                .size(15.0),
                         );
                     });
-            });
-        });
 
-        ui.add_space(12.0);
-        ui.add(
-            egui::ProgressBar::new(f32::from(dashboard.xp_progress_percent) / 100.0)
-                .desired_width(ui.available_width())
-                .fill(ACCENT)
-                .text(format!(
-                    "{} / {} XP to next level",
-                    dashboard.level.xp_into_level, dashboard.level.xp_for_next_level
-                )),
-        );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        egui::Frame::new()
+                            .fill(ACCENT.gamma_multiply(0.13))
+                            .stroke(Stroke::new(1.0, ACCENT.gamma_multiply(0.55)))
+                            .corner_radius(14.0)
+                            .inner_margin(14.0)
+                            .show(ui, |ui| {
+                                ui.label(
+                                    RichText::new(format!("等级 {}", dashboard.level.level))
+                                        .color(ACCENT)
+                                        .strong()
+                                        .size(20.0),
+                                );
+                            });
+                    });
+                });
+
+                ui.add_space(14.0);
+                ui.add(
+                    egui::ProgressBar::new(f32::from(dashboard.xp_progress_percent) / 100.0)
+                        .desired_width(ui.available_width())
+                        .fill(ACCENT)
+                        .text(format!(
+                            "距离下一级：{} / {} XP",
+                            dashboard.level.xp_into_level, dashboard.level.xp_for_next_level
+                        )),
+                );
+            });
     }
 
     fn render_stat_cards(ui: &mut egui::Ui, dashboard: &Dashboard) {
         ui.columns(3, |columns| {
-            stat_card(&mut columns[0], "TODAY", dashboard.today_minutes, "minutes");
-            stat_card(
-                &mut columns[1],
-                "SESSIONS",
-                dashboard.total_sessions,
-                "completed",
-            );
-            stat_card(&mut columns[2], "TOTAL XP", dashboard.total_xp, "earned");
+            stat_card(&mut columns[0], "今日学习", dashboard.today_minutes, "分钟");
+            stat_card(&mut columns[1], "完成学习", dashboard.total_sessions, "次");
+            stat_card(&mut columns[2], "累计经验", dashboard.total_xp, "XP");
         });
     }
 
-    fn render_navigation(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.page, DesktopPage::Dashboard, "Dashboard");
-            ui.selectable_value(&mut self.page, DesktopPage::Statistics, "Statistics");
-        });
+    fn render_sidebar(
+        &mut self,
+        ui: &mut egui::Ui,
+        dashboard: &Dashboard,
+        current_streak_days: u32,
+    ) {
+        egui::Frame::new()
+            .fill(SIDEBAR)
+            .stroke(Stroke::new(1.0, PANEL_HOVER))
+            .inner_margin(18.0)
+            .show(ui, |ui| {
+                ui.set_min_width(180.0);
+                ui.set_min_height(ui.available_height());
+                ui.label(RichText::new("✦").color(ACCENT).size(30.0));
+                ui.label(RichText::new("学习冒险").strong().size(22.0));
+                ui.label(RichText::new("把每一次专注变成成长").color(MUTED).small());
+                ui.add_space(24.0);
+
+                navigation_button(ui, &mut self.page, DesktopPage::Dashboard, "◈  冒险主页");
+                ui.add_space(8.0);
+                navigation_button(ui, &mut self.page, DesktopPage::Statistics, "▥  学习统计");
+
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                    egui::Frame::new()
+                        .fill(PANEL)
+                        .corner_radius(12.0)
+                        .inner_margin(12.0)
+                        .show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
+                            ui.label(
+                                RichText::new(localized_player_name(&dashboard.player_name))
+                                    .strong(),
+                            );
+                            ui.label(
+                                RichText::new(format!(
+                                    "等级 {} · {}",
+                                    dashboard.level.level,
+                                    localized_title(&dashboard.title)
+                                ))
+                                .color(MUTED)
+                                .small(),
+                            );
+                            ui.label(
+                                RichText::new(format!("连续学习 {} 天", current_streak_days))
+                                    .color(SUCCESS)
+                                    .small(),
+                            );
+                            ui.add(
+                                egui::ProgressBar::new(
+                                    (f32::from(dashboard.energy) / f32::from(MAX_ENERGY))
+                                        .clamp(0.0, 1.0),
+                                )
+                                .desired_width(ui.available_width())
+                                .fill(BLUE)
+                                .text(format!("活力 {}", dashboard.energy)),
+                            );
+                        });
+                });
+            });
     }
 
     fn render_session_panel(&mut self, ui: &mut egui::Ui, dashboard: &Dashboard, now: u64) {
         section_frame(ui, |ui| {
-            ui.label(RichText::new("FOCUS SESSION").color(MUTED).strong());
+            ui.label(RichText::new("专注学习").color(MUTED).strong());
             ui.add_space(8.0);
 
             if let Some(active) = &dashboard.active_session {
@@ -117,7 +184,7 @@ impl StudyRpgDesktopApp {
                         ui.label(RichText::new(&active.topic).strong().size(22.0));
                         ui.label(
                             RichText::new(format!(
-                                "{} elapsed · estimated +{} XP",
+                                "已专注 {} · 预计获得 {} XP",
                                 elapsed_timer_text(active.started_at_epoch_seconds, now),
                                 active.estimated_xp
                             ))
@@ -127,10 +194,7 @@ impl StudyRpgDesktopApp {
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
-                            .add(
-                                egui::Button::new(RichText::new("Finish Session").strong())
-                                    .fill(DANGER),
-                            )
+                            .add(egui::Button::new(RichText::new("完成学习").strong()).fill(DANGER))
                             .clicked()
                         {
                             match self.controller.finish_session(now) {
@@ -154,15 +218,15 @@ impl StudyRpgDesktopApp {
                 ui.horizontal(|ui| {
                     let input = ui.add_sized(
                         [ui.available_width() - 130.0, 38.0],
-                        egui::TextEdit::singleline(&mut self.topic)
-                            .hint_text("What are you studying?"),
+                        egui::TextEdit::singleline(&mut self.topic).hint_text("今天准备学习什么？"),
                     );
                     let enter_pressed =
                         input.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
                     let start_clicked = ui
                         .add_sized(
                             [118.0, 38.0],
-                            egui::Button::new(RichText::new("Start Study").strong()).fill(ACCENT),
+                            egui::Button::new(RichText::new("开始学习").color(BACKGROUND).strong())
+                                .fill(ACCENT),
                         )
                         .clicked();
 
@@ -172,7 +236,7 @@ impl StudyRpgDesktopApp {
                                 let topic = self.topic.trim().to_string();
                                 self.topic.clear();
                                 self.feedback = Some(Feedback {
-                                    message: format!("Timer started for {topic}"),
+                                    message: format!("已开始学习：{topic}"),
                                     is_error: false,
                                 });
                             }
@@ -201,11 +265,11 @@ impl StudyRpgDesktopApp {
     fn render_quests(ui: &mut egui::Ui, dashboard: &Dashboard) {
         section_frame(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("DAILY QUESTS").color(MUTED).strong());
+                ui.label(RichText::new("每日任务").color(MUTED).strong());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(
                         RichText::new(format!(
-                            "Daily clear +{} XP",
+                            "全清奖励 {} XP",
                             dashboard.daily_quest_completion.reward_xp
                         ))
                         .color(ACCENT),
@@ -226,7 +290,7 @@ impl StudyRpgDesktopApp {
                     );
                     ui.vertical(|ui| {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new(&quest.title).strong());
+                            ui.label(RichText::new(localized_quest_title(&quest.title)).strong());
                             ui.label(
                                 RichText::new(format!("+{} XP", quest.reward_xp)).color(ACCENT),
                             );
@@ -250,7 +314,7 @@ impl StudyRpgDesktopApp {
             if dashboard.daily_quest_completion.completed {
                 ui.label(
                     RichText::new(format!(
-                        "Daily Complete · +{} XP claimed",
+                        "今日任务已全清 · 已领取 {} XP",
                         dashboard.daily_quest_completion.reward_xp
                     ))
                     .color(SUCCESS)
@@ -262,13 +326,11 @@ impl StudyRpgDesktopApp {
 
     fn render_recent_sessions(ui: &mut egui::Ui, dashboard: &Dashboard) {
         section_frame(ui, |ui| {
-            ui.label(RichText::new("RECENT STUDY").color(MUTED).strong());
+            ui.label(RichText::new("最近学习").color(MUTED).strong());
             ui.add_space(8.0);
 
             if dashboard.recent_sessions.is_empty() {
-                ui.label(
-                    RichText::new("Complete your first session to begin the journey.").color(MUTED),
-                );
+                ui.label(RichText::new("完成第一次学习，开启你的成长旅程。").color(MUTED));
                 return;
             }
 
@@ -283,7 +345,8 @@ impl StudyRpgDesktopApp {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(RichText::new(format!("+{} XP", session.earned_xp)).color(ACCENT));
                         ui.label(
-                            RichText::new(format!("{} min", session.duration_minutes)).color(MUTED),
+                            RichText::new(format!("{} 分钟", session.duration_minutes))
+                                .color(MUTED),
                         );
                     });
                 });
@@ -294,25 +357,25 @@ impl StudyRpgDesktopApp {
 
     fn render_statistics(ui: &mut egui::Ui, report: &StudyStatisticsReport) {
         ui.columns(4, |columns| {
-            statistics_period_card(&mut columns[0], "TODAY", &report.today);
-            statistics_period_card(&mut columns[1], "THIS WEEK", &report.this_week);
-            statistics_period_card(&mut columns[2], "THIS MONTH", &report.this_month);
-            statistics_period_card(&mut columns[3], "ALL TIME", &report.all_time);
+            statistics_period_card(&mut columns[0], "今日", &report.today);
+            statistics_period_card(&mut columns[1], "本周", &report.this_week);
+            statistics_period_card(&mut columns[2], "本月", &report.this_month);
+            statistics_period_card(&mut columns[3], "累计", &report.all_time);
         });
 
         ui.add_space(12.0);
         ui.columns(2, |columns| {
             stat_card(
                 &mut columns[0],
-                "CURRENT STREAK",
+                "当前连续学习",
                 report.current_streak_days,
-                "days",
+                "天",
             );
             stat_card(
                 &mut columns[1],
-                "LONGEST STREAK",
+                "最长连续学习",
                 report.longest_streak_days,
-                "days",
+                "天",
             );
         });
 
@@ -341,63 +404,125 @@ impl eframe::App for StudyRpgDesktopApp {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::new().fill(BACKGROUND).inner_margin(24.0))
                     .show(ui, |ui| {
-                        ui.heading("Study RPG could not load local data");
+                        ui.heading("学习冒险无法读取本地数据");
                         ui.label(RichText::new(error.to_string()).color(DANGER));
                     });
                 return;
             }
         };
+        let statistics = self.controller.statistics_at(now);
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(BACKGROUND).inner_margin(24.0))
+            .frame(egui::Frame::new().fill(BACKGROUND).inner_margin(0.0))
             .show(ui, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    Self::render_header(ui, &dashboard);
-                    ui.add_space(12.0);
-                    self.render_navigation(ui);
-                    ui.add_space(18.0);
-                    match self.page {
-                        DesktopPage::Dashboard => {
-                            Self::render_stat_cards(ui, &dashboard);
-                            ui.add_space(12.0);
-                            self.render_session_panel(ui, &dashboard, now);
-                            if self.feedback.is_some() {
-                                ui.add_space(10.0);
-                                self.render_feedback(ui);
-                            }
-                            ui.add_space(12.0);
-                            ui.columns(2, |columns| {
-                                Self::render_quests(&mut columns[0], &dashboard);
-                                Self::render_recent_sessions(&mut columns[1], &dashboard);
+                let available_height = ui.available_height();
+                ui.horizontal_top(|ui| {
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(216.0, available_height),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| self.render_sidebar(ui, &dashboard, statistics.current_streak_days),
+                    );
+
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width(), available_height),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                            egui::Frame::new().inner_margin(24.0).show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                egui::ScrollArea::vertical().show(ui, |ui| {
+                                    Self::render_header(ui, &dashboard);
+                                    ui.add_space(18.0);
+                                    match self.page {
+                                        DesktopPage::Dashboard => {
+                                            Self::render_stat_cards(ui, &dashboard);
+                                            ui.add_space(12.0);
+                                            self.render_session_panel(ui, &dashboard, now);
+                                            if self.feedback.is_some() {
+                                                ui.add_space(10.0);
+                                                self.render_feedback(ui);
+                                            }
+                                            ui.add_space(12.0);
+                                            ui.columns(2, |columns| {
+                                                Self::render_quests(&mut columns[0], &dashboard);
+                                                Self::render_recent_sessions(
+                                                    &mut columns[1],
+                                                    &dashboard,
+                                                );
+                                            });
+                                        }
+                                        DesktopPage::Statistics => {
+                                            Self::render_statistics(ui, &statistics);
+                                        }
+                                    }
+                                });
                             });
-                        }
-                        DesktopPage::Statistics => {
-                            let statistics = self.controller.statistics_at(now);
-                            Self::render_statistics(ui, &statistics);
-                        }
-                    }
+                        },
+                    );
                 });
             });
     }
 }
 
+fn navigation_button(ui: &mut egui::Ui, page: &mut DesktopPage, target: DesktopPage, label: &str) {
+    let selected = *page == target;
+    let text_color = if selected { ACCENT } else { MUTED };
+    let fill = if selected {
+        ACCENT.gamma_multiply(0.12)
+    } else {
+        Color32::TRANSPARENT
+    };
+    let stroke = if selected {
+        Stroke::new(1.0, ACCENT.gamma_multiply(0.45))
+    } else {
+        Stroke::NONE
+    };
+
+    if ui
+        .add_sized(
+            [ui.available_width(), 42.0],
+            egui::Button::new(RichText::new(label).color(text_color).strong())
+                .fill(fill)
+                .stroke(stroke)
+                .corner_radius(10.0),
+        )
+        .clicked()
+    {
+        *page = target;
+    }
+}
+
+fn card_accent(label: &str) -> Color32 {
+    if label.contains("经验") || label.contains("累计") {
+        ACCENT
+    } else if label.contains("连续") {
+        SUCCESS
+    } else if label.contains("周") || label.contains("完成") {
+        BLUE
+    } else if label.contains("月") {
+        PURPLE
+    } else {
+        ACCENT
+    }
+}
+
 fn statistics_period_card(ui: &mut egui::Ui, label: &str, statistics: &StudyStatistics) {
+    let color = card_accent(label);
     egui::Frame::new()
         .fill(PANEL)
-        .stroke(Stroke::new(1.0, PANEL_HOVER))
-        .corner_radius(10.0)
-        .inner_margin(14.0)
+        .stroke(Stroke::new(1.0, color.gamma_multiply(0.35)))
+        .corner_radius(14.0)
+        .inner_margin(16.0)
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.label(RichText::new(label).color(MUTED).strong().size(12.0));
             ui.label(
-                RichText::new(format!("{} min", statistics.total_minutes))
-                    .color(ACCENT)
+                RichText::new(format!("{} 分钟", statistics.total_minutes))
+                    .color(color)
                     .strong()
                     .size(24.0),
             );
             ui.label(
                 RichText::new(format!(
-                    "{} sessions · {} XP",
+                    "{} 次学习 · {} XP",
                     statistics.total_sessions, statistics.total_xp
                 ))
                 .color(MUTED)
@@ -409,9 +534,9 @@ fn statistics_period_card(ui: &mut egui::Ui, label: &str, statistics: &StudyStat
 fn render_activity_chart(ui: &mut egui::Ui, report: &StudyStatisticsReport) {
     section_frame(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("LAST 7 DAYS").color(MUTED).strong());
+            ui.label(RichText::new("最近七天").color(MUTED).strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(RichText::new("Minutes bars · XP line").color(MUTED).small());
+                ui.label(RichText::new("学习时长柱 · XP 趋势线").color(MUTED).small());
             });
         });
         ui.add_space(10.0);
@@ -448,7 +573,7 @@ fn render_activity_chart(ui: &mut egui::Ui, report: &StudyStatisticsReport) {
             painter.text(
                 egui::pos2(center_x, chart_bottom - bar_height - 5.0),
                 egui::Align2::CENTER_BOTTOM,
-                format!("{}m", day.statistics.total_minutes),
+                format!("{}分", day.statistics.total_minutes),
                 egui::FontId::proportional(12.0),
                 MUTED,
             );
@@ -478,17 +603,18 @@ fn render_activity_chart(ui: &mut egui::Ui, report: &StudyStatisticsReport) {
 }
 
 fn stat_card(ui: &mut egui::Ui, label: &str, value: u32, suffix: &str) {
+    let color = card_accent(label);
     egui::Frame::new()
         .fill(PANEL)
-        .stroke(Stroke::new(1.0, PANEL_HOVER))
-        .corner_radius(10.0)
-        .inner_margin(14.0)
+        .stroke(Stroke::new(1.0, color.gamma_multiply(0.35)))
+        .corner_radius(14.0)
+        .inner_margin(16.0)
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.label(RichText::new(label).color(MUTED).strong().size(12.0));
             ui.label(
                 RichText::new(value.to_string())
-                    .color(ACCENT)
+                    .color(color)
                     .strong()
                     .size(28.0),
             );
@@ -500,8 +626,8 @@ fn section_frame(ui: &mut egui::Ui, content: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::new()
         .fill(PANEL)
         .stroke(Stroke::new(1.0, PANEL_HOVER))
-        .corner_radius(10.0)
-        .inner_margin(16.0)
+        .corner_radius(14.0)
+        .inner_margin(18.0)
         .show(ui, content);
 }
 
@@ -539,21 +665,58 @@ fn session_completion_message(
     quest_xp: u32,
     daily_completion_bonus_xp: u32,
 ) -> String {
-    let mut rewards = vec![format!("+{study_xp} study XP")];
+    let mut rewards = vec![format!("学习 +{study_xp} XP")];
     if quest_xp > 0 {
-        rewards.push(format!("+{quest_xp} quest XP"));
+        rewards.push(format!("任务 +{quest_xp} XP"));
     }
     if daily_completion_bonus_xp > 0 {
-        rewards.push(format!("+{daily_completion_bonus_xp} daily clear XP"));
+        rewards.push(format!("全清 +{daily_completion_bonus_xp} XP"));
     }
 
     format!(
-        "Session complete: {duration_minutes} min · {}",
+        "学习完成：{duration_minutes} 分钟 · {}",
         rewards.join(" · ")
     )
 }
 
+fn localized_player_name(name: &str) -> &str {
+    if name == "Player" { "玩家" } else { name }
+}
+
+fn localized_title(title: &str) -> &str {
+    match title {
+        "Novice Learner" => "见习学者",
+        "Knowledge Hunter" => "知识猎手",
+        "Scholar Adventurer" => "学识冒险家",
+        "Master Student" => "求学大师",
+        "Legendary Learner" => "传奇求知者",
+        _ => title,
+    }
+}
+
+fn localized_quest_title(title: &str) -> String {
+    if let Some(minutes) = title
+        .strip_prefix("Study ")
+        .and_then(|value| value.strip_suffix(" minutes"))
+    {
+        return format!("学习 {minutes} 分钟");
+    }
+    if let Some(sessions) = title
+        .strip_prefix("Complete ")
+        .and_then(|value| value.strip_suffix(" study session"))
+    {
+        return format!("完成 {sessions} 次学习");
+    }
+
+    title.to_string()
+}
+
 fn configure_style(context: &egui::Context) {
+    let mut style = (*context.style_of(egui::Theme::Dark)).clone();
+    style.spacing.item_spacing = egui::vec2(10.0, 10.0);
+    style.spacing.button_padding = egui::vec2(14.0, 9.0);
+    context.set_style_of(egui::Theme::Dark, style);
+
     let mut visuals = egui::Visuals::dark();
     visuals.panel_fill = BACKGROUND;
     visuals.window_fill = BACKGROUND;
@@ -613,7 +776,7 @@ mod tests {
 
         assert_eq!(
             message,
-            "Session complete: 30 min · +48 study XP · +100 quest XP · +150 daily clear XP"
+            "学习完成：30 分钟 · 学习 +48 XP · 任务 +100 XP · 全清 +150 XP"
         );
     }
 
@@ -621,6 +784,6 @@ mod tests {
     fn session_completion_feedback_omits_rewards_that_were_not_earned() {
         let message = session_completion_message(25, 40, 0, 0);
 
-        assert_eq!(message, "Session complete: 25 min · +40 study XP");
+        assert_eq!(message, "学习完成：25 分钟 · 学习 +40 XP");
     }
 }

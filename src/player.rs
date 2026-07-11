@@ -1,5 +1,7 @@
 use crate::xp::{LevelProgress, progress_from_total_xp};
 
+pub const MAX_ENERGY: u8 = 100;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CharacterClass {
     Scholar,
@@ -40,7 +42,7 @@ impl Player {
             class,
             title: "Novice Learner".to_string(),
             total_xp: 0,
-            energy: 100,
+            energy: MAX_ENERGY,
             mood: Mood::Focused,
         }
     }
