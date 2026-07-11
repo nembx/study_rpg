@@ -1,4 +1,6 @@
-use study_rpg::{CharacterClass, StudyRpg, StudySessionInput, StudySessionStartInput};
+use study_rpg::{
+    CalendarDate, CharacterClass, StudyRpg, StudySessionInput, StudySessionStartInput,
+};
 
 const DAY: u64 = 86_400;
 
@@ -60,6 +62,68 @@ fn statistics_report_includes_a_dense_seven_day_activity_series() {
 }
 
 #[test]
+fn statistics_report_exposes_calendar_dates_for_activity_buckets() {
+    let app = StudyRpg::new("Nembx", CharacterClass::Scholar);
+
+    let report = app.statistics_at(6 * DAY + 12 * 60 * 60);
+
+    assert_eq!(
+        report.last_seven_days[6].date,
+        CalendarDate {
+            year: 1970,
+            month: 1,
+            day: 7,
+        }
+    );
+}
+
+#[test]
+fn activity_bucket_dates_preserve_calendar_boundaries() {
+    let app = StudyRpg::new("Nembx", CharacterClass::Scholar);
+
+    assert_eq!(
+        activity_date_at(&app, 30),
+        CalendarDate {
+            year: 1970,
+            month: 1,
+            day: 31,
+        }
+    );
+    assert_eq!(
+        activity_date_at(&app, 31),
+        CalendarDate {
+            year: 1970,
+            month: 2,
+            day: 1,
+        }
+    );
+    assert_eq!(
+        activity_date_at(&app, 364),
+        CalendarDate {
+            year: 1970,
+            month: 12,
+            day: 31,
+        }
+    );
+    assert_eq!(
+        activity_date_at(&app, 365),
+        CalendarDate {
+            year: 1971,
+            month: 1,
+            day: 1,
+        }
+    );
+    assert_eq!(
+        activity_date_at(&app, 789),
+        CalendarDate {
+            year: 1972,
+            month: 2,
+            day: 29,
+        }
+    );
+}
+
+#[test]
 fn statistics_report_calculates_current_and_longest_study_streaks() {
     let mut app = StudyRpg::new("Nembx", CharacterClass::Scholar);
 
@@ -111,4 +175,10 @@ fn record_session_at(app: &mut StudyRpg, epoch_day: u64, duration_minutes: u32) 
     .unwrap();
     app.finish_active_study_session(started_at + u64::from(duration_minutes) * 60)
         .unwrap();
+}
+
+fn activity_date_at(app: &StudyRpg, epoch_day: u64) -> CalendarDate {
+    app.statistics_at(epoch_day * DAY + 12 * 60 * 60)
+        .last_seven_days[6]
+        .date
 }

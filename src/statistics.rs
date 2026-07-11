@@ -23,7 +23,15 @@ pub struct StudyStatisticsReport {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DailyStudyStatistics {
     pub epoch_day: u64,
+    pub date: CalendarDate,
     pub statistics: StudyStatistics,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CalendarDate {
+    pub year: i64,
+    pub month: u32,
+    pub day: u32,
 }
 
 impl StudyStatistics {
@@ -60,6 +68,7 @@ impl StudyStatisticsReport {
             last_seven_days: (activity_start_day..=current_day)
                 .map(|epoch_day| DailyStudyStatistics {
                     epoch_day,
+                    date: calendar_date(epoch_day),
                     statistics: StudyStatistics::default(),
                 })
                 .collect(),
@@ -145,6 +154,11 @@ fn week_start(day: u64) -> u64 {
 }
 
 fn calendar_month(day: u64) -> (i64, u32) {
+    let date = calendar_date(day);
+    (date.year, date.month)
+}
+
+fn calendar_date(day: u64) -> CalendarDate {
     let z = day as i64 + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
     let day_of_era = z - era * 146_097;
@@ -153,8 +167,13 @@ fn calendar_month(day: u64) -> (i64, u32) {
     let mut year = year_of_era + era * 400;
     let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
     let month_part = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_part + 2) / 5 + 1;
     let month = month_part + if month_part < 10 { 3 } else { -9 };
     year += i64::from(month <= 2);
 
-    (year, month as u32)
+    CalendarDate {
+        year,
+        month: month as u32,
+        day: day as u32,
+    }
 }

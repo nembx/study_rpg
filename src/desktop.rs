@@ -3,7 +3,7 @@ use std::fmt::{self, Display, Formatter};
 
 use crate::{
     CharacterClass, Dashboard, SqliteStore, StudyRpg, StudyRpgError, StudySessionResult,
-    StudySessionStartInput,
+    StudySessionStartInput, StudyStatisticsReport,
 };
 
 pub struct DesktopController {
@@ -59,6 +59,10 @@ impl DesktopController {
         }
 
         Ok(self.app.dashboard_at(current_epoch_seconds))
+    }
+
+    pub fn statistics_at(&self, current_epoch_seconds: u64) -> StudyStatisticsReport {
+        self.app.statistics_at(current_epoch_seconds)
     }
 
     pub fn finish_session(

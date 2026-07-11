@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use eframe::egui::{self, Color32, FontData, FontDefinitions, FontFamily, RichText, Stroke};
-use study_rpg::{Dashboard, DesktopController};
+use study_rpg::{Dashboard, DesktopController, StudyStatistics, StudyStatisticsReport};
 
 const BACKGROUND: Color32 = Color32::from_rgb(12, 16, 28);
 const PANEL: Color32 = Color32::from_rgb(24, 30, 48);
@@ -14,8 +14,15 @@ const MUTED: Color32 = Color32::from_rgb(155, 166, 190);
 
 pub struct StudyRpgDesktopApp {
     controller: DesktopController,
+    page: DesktopPage,
     topic: String,
     feedback: Option<Feedback>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DesktopPage {
+    Dashboard,
+    Statistics,
 }
 
 struct Feedback {
@@ -33,6 +40,7 @@ impl StudyRpgDesktopApp {
 
         Self {
             controller,
+            page: DesktopPage::Dashboard,
             topic: String::new(),
             feedback: None,
         }
@@ -88,6 +96,13 @@ impl StudyRpgDesktopApp {
                 "completed",
             );
             stat_card(&mut columns[2], "TOTAL XP", dashboard.total_xp, "earned");
+        });
+    }
+
+    fn render_navigation(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.page, DesktopPage::Dashboard, "Dashboard");
+            ui.selectable_value(&mut self.page, DesktopPage::Statistics, "Statistics");
         });
     }
 
@@ -277,6 +292,34 @@ impl StudyRpgDesktopApp {
         });
     }
 
+    fn render_statistics(ui: &mut egui::Ui, report: &StudyStatisticsReport) {
+        ui.columns(4, |columns| {
+            statistics_period_card(&mut columns[0], "TODAY", &report.today);
+            statistics_period_card(&mut columns[1], "THIS WEEK", &report.this_week);
+            statistics_period_card(&mut columns[2], "THIS MONTH", &report.this_month);
+            statistics_period_card(&mut columns[3], "ALL TIME", &report.all_time);
+        });
+
+        ui.add_space(12.0);
+        ui.columns(2, |columns| {
+            stat_card(
+                &mut columns[0],
+                "CURRENT STREAK",
+                report.current_streak_days,
+                "days",
+            );
+            stat_card(
+                &mut columns[1],
+                "LONGEST STREAK",
+                report.longest_streak_days,
+                "days",
+            );
+        });
+
+        ui.add_space(12.0);
+        render_activity_chart(ui, report);
+    }
+
     fn set_error(&mut self, message: String) {
         self.feedback = Some(Feedback {
             message,
@@ -304,28 +347,134 @@ impl eframe::App for StudyRpgDesktopApp {
                 return;
             }
         };
-
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(BACKGROUND).inner_margin(24.0))
             .show(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     Self::render_header(ui, &dashboard);
+                    ui.add_space(12.0);
+                    self.render_navigation(ui);
                     ui.add_space(18.0);
-                    Self::render_stat_cards(ui, &dashboard);
-                    ui.add_space(12.0);
-                    self.render_session_panel(ui, &dashboard, now);
-                    if self.feedback.is_some() {
-                        ui.add_space(10.0);
-                        self.render_feedback(ui);
+                    match self.page {
+                        DesktopPage::Dashboard => {
+                            Self::render_stat_cards(ui, &dashboard);
+                            ui.add_space(12.0);
+                            self.render_session_panel(ui, &dashboard, now);
+                            if self.feedback.is_some() {
+                                ui.add_space(10.0);
+                                self.render_feedback(ui);
+                            }
+                            ui.add_space(12.0);
+                            ui.columns(2, |columns| {
+                                Self::render_quests(&mut columns[0], &dashboard);
+                                Self::render_recent_sessions(&mut columns[1], &dashboard);
+                            });
+                        }
+                        DesktopPage::Statistics => {
+                            let statistics = self.controller.statistics_at(now);
+                            Self::render_statistics(ui, &statistics);
+                        }
                     }
-                    ui.add_space(12.0);
-                    ui.columns(2, |columns| {
-                        Self::render_quests(&mut columns[0], &dashboard);
-                        Self::render_recent_sessions(&mut columns[1], &dashboard);
-                    });
                 });
             });
     }
+}
+
+fn statistics_period_card(ui: &mut egui::Ui, label: &str, statistics: &StudyStatistics) {
+    egui::Frame::new()
+        .fill(PANEL)
+        .stroke(Stroke::new(1.0, PANEL_HOVER))
+        .corner_radius(10.0)
+        .inner_margin(14.0)
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.label(RichText::new(label).color(MUTED).strong().size(12.0));
+            ui.label(
+                RichText::new(format!("{} min", statistics.total_minutes))
+                    .color(ACCENT)
+                    .strong()
+                    .size(24.0),
+            );
+            ui.label(
+                RichText::new(format!(
+                    "{} sessions · {} XP",
+                    statistics.total_sessions, statistics.total_xp
+                ))
+                .color(MUTED)
+                .small(),
+            );
+        });
+}
+
+fn render_activity_chart(ui: &mut egui::Ui, report: &StudyStatisticsReport) {
+    section_frame(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("LAST 7 DAYS").color(MUTED).strong());
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(RichText::new("Minutes bars · XP line").color(MUTED).small());
+            });
+        });
+        ui.add_space(10.0);
+
+        let desired_size = egui::vec2(ui.available_width(), 220.0);
+        let (rect, _) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
+        let painter = ui.painter_at(rect);
+        let chart_top = rect.top() + 24.0;
+        let chart_bottom = rect.bottom() - 28.0;
+        let maximum_minutes = report
+            .last_seven_days
+            .iter()
+            .map(|day| day.statistics.total_minutes)
+            .max()
+            .unwrap_or(0);
+        let maximum_xp = report
+            .last_seven_days
+            .iter()
+            .map(|day| day.statistics.total_xp)
+            .max()
+            .unwrap_or(0);
+        let slot_width = rect.width() / report.last_seven_days.len().max(1) as f32;
+        let mut xp_points = Vec::with_capacity(report.last_seven_days.len());
+
+        for (index, day) in report.last_seven_days.iter().enumerate() {
+            let center_x = rect.left() + slot_width * (index as f32 + 0.5);
+            let fraction = activity_bar_fraction(day.statistics.total_minutes, maximum_minutes);
+            let bar_height = (chart_bottom - chart_top) * fraction;
+            let bar_rect = egui::Rect::from_min_max(
+                egui::pos2(center_x - slot_width * 0.28, chart_bottom - bar_height),
+                egui::pos2(center_x + slot_width * 0.28, chart_bottom),
+            );
+            painter.rect_filled(bar_rect, 5.0, ACCENT);
+            painter.text(
+                egui::pos2(center_x, chart_bottom - bar_height - 5.0),
+                egui::Align2::CENTER_BOTTOM,
+                format!("{}m", day.statistics.total_minutes),
+                egui::FontId::proportional(12.0),
+                MUTED,
+            );
+            let xp_fraction = activity_bar_fraction(day.statistics.total_xp, maximum_xp);
+            xp_points.push(egui::pos2(
+                center_x,
+                chart_bottom - (chart_bottom - chart_top) * xp_fraction,
+            ));
+            painter.text(
+                egui::pos2(center_x, rect.bottom() - 4.0),
+                egui::Align2::CENTER_BOTTOM,
+                format!("{:02}-{:02}", day.date.month, day.date.day),
+                egui::FontId::proportional(12.0),
+                MUTED,
+            );
+        }
+
+        if maximum_xp > 0 {
+            for points in xp_points.windows(2) {
+                painter.line_segment([points[0], points[1]], Stroke::new(2.0, SUCCESS));
+            }
+            for point in xp_points {
+                painter.circle_filled(point, 4.0, SUCCESS);
+            }
+        }
+    });
 }
 
 fn stat_card(ui: &mut egui::Ui, label: &str, value: u32, suffix: &str) {
@@ -374,6 +523,14 @@ fn elapsed_timer_text(started_at_epoch_seconds: u64, current_epoch_seconds: u64)
     } else {
         format!("{hours}:{minutes:02}:{seconds:02}")
     }
+}
+
+fn activity_bar_fraction(minutes: u32, maximum_minutes: u32) -> f32 {
+    if maximum_minutes == 0 {
+        return 0.0;
+    }
+
+    (minutes as f32 / maximum_minutes as f32).clamp(0.0, 1.0)
 }
 
 fn session_completion_message(

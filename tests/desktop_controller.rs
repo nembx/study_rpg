@@ -35,6 +35,26 @@ fn desktop_controller_finishes_the_timer_through_the_core_loop() {
 }
 
 #[test]
+fn desktop_controller_exposes_the_core_statistics_report() {
+    const DAY: u64 = 86_400;
+    let store = SqliteStore::in_memory().unwrap();
+    let mut desktop =
+        DesktopController::load_or_create(store, "Nembx", CharacterClass::Scholar, 10 * DAY)
+            .unwrap();
+    desktop.start_session("Yesterday", 9 * DAY).unwrap();
+    desktop.finish_session(9 * DAY + 20 * 60).unwrap();
+    desktop.start_session("Today", 10 * DAY).unwrap();
+    desktop.finish_session(10 * DAY + 30 * 60).unwrap();
+
+    let report = desktop.statistics_at(10 * DAY + 30 * 60);
+
+    assert_eq!(report.today.total_minutes, 30);
+    assert_eq!(report.all_time.total_minutes, 50);
+    assert_eq!(report.current_streak_days, 2);
+    assert_eq!(report.last_seven_days.len(), 7);
+}
+
+#[test]
 fn desktop_controller_restores_an_active_session_from_local_storage() {
     let database_path = std::env::temp_dir().join(format!(
         "study-rpg-desktop-{}-{}.sqlite3",

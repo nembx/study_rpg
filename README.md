@@ -22,6 +22,7 @@ Study RPG 是一个 Local First 的学习成长软件。目标不是做另一个
 - 生成 Dashboard 聚合数据，包括任务进度、最近学习记录和进行中的学习估算
 - 使用 SQLite 保存和恢复本地状态，包括进行中的学习 Session
 - 提供本地桌面 Dashboard，可开始/结束学习计时、查看等级、任务和最近记录
+- 提供 Statistics 页面，展示周期汇总、七日学习时长/XP 趋势和连续学习天数
 
 ## 运行
 
@@ -89,9 +90,11 @@ src/
 - Dashboard 聚合数据
 - SQLite 持久化
 - 桌面 Dashboard 与学习计时交互
+- Statistics 汇总与七日学习时长柱状图、XP 折线图
 - 基础测试
 
 下一步：
 
-- 增加 Statistics 页面和趋势图表
+- 增加首次运行的角色创建流程
 - 继续完善 Daily Quest 的视觉反馈
+- 记录并展示等级变化与技能成长历史
