@@ -1,0 +1,16 @@
+[package]
+name = "study-rpg-desktop"
+version = "0.1.0"
+description = "Study RPG desktop companion"
+edition = "2024"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+study_rpg = { path = ".." }
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

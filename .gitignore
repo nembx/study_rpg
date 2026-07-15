@@ -1,4 +1,10 @@
 /target/
+/src-tauri/target/
+/src-tauri/gen/schemas/
+/src-tauri/icons/android/
+/src-tauri/icons/ios/
+/node_modules/
+/dist/
 
 # Private product notes
 设计.md

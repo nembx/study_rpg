@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Study RPG companion and dashboard capabilities",
+  "windows": ["companion", "dashboard"],
+  "permissions": ["core:default"]
+}

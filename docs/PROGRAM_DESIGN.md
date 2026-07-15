@@ -77,10 +77,9 @@ Statistics 当前聚合：
 
 ```text
 src/
+├── companion.rs
 ├── desktop.rs
-├── desktop_ui.rs
 ├── lib.rs
-├── main.rs
 ├── player.rs
 ├── quest.rs
 ├── session.rs
@@ -89,17 +88,22 @@ src/
 ├── storage.rs
 ├── study_rpg.rs
 └── xp.rs
+
+src-tauri/          # Tauri 桌面适配器、窗口与托盘生命周期
+src-ui/             # Svelte Companion 和 Dashboard
 ```
 
 ## 外层适配器
 
 V1 核心模块保持纯 Rust，便于测试。当前外层适配器：
 
-- `desktop_ui`: 使用 eframe/egui 提供桌面窗口、Dashboard 和 Session 计时器
+- `src-ui`: 使用 Svelte 提供右侧 Companion 与完整 Dashboard
+- `src-tauri`: 使用 Tauri 2 暴露命令，管理无边框置顶 Companion、普通 Dashboard 和系统托盘
+- `companion`: 计算不同 DPI 和显示器工作区下的贴边窗口尺寸与位置
 - `desktop`: 在 UI 与核心循环之间协调命令，并在状态变化后保存快照
 - `storage`: 通过 SQLite 读写完整的 `StudyRpg` 状态
 
-桌面端的 Statistics 页面直接消费 `StudyRpg::statistics_at(now)`，展示今日、本周、本月、累计汇总、最近七日学习时长柱状图、XP 折线图和连续学习天数。七日桶的日历日期由核心统计模块提供，UI 不重新计算日期分组或日历边界。
+Companion 以正向计时和即时成长反馈为主要职责，提供收起卡片与展开面板两种形态；展开状态和纵向位置作为 UI 偏好保存在 SQLite。Dashboard 直接消费 `StudyRpg::statistics_at(now)`，展示今日、本周、本月、累计汇总、最近七日学习时长和连续学习天数。七日桶的日历日期由核心统计模块提供，UI 不重新计算日期分组或日历边界。
 
 未来可以替换视觉框架或拆分更多页面，但核心接口和 SQLite 快照边界不随 UI 技术变化。
 

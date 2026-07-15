@@ -1,4 +1,6 @@
-use study_rpg::{CharacterClass, DesktopController, SqliteStore};
+use study_rpg::{
+    CharacterClass, CompanionMode, CompanionPreferences, DesktopController, SqliteStore,
+};
 
 #[cfg(unix)]
 use study_rpg::DesktopError;
@@ -82,6 +84,49 @@ fn desktop_controller_restores_an_active_session_from_local_storage() {
 
         assert_eq!(dashboard.player_name, "Nembx");
         assert_eq!(dashboard.active_session.unwrap().topic, "Persistent timer");
+    }
+
+    std::fs::remove_file(database_path).unwrap();
+}
+
+#[test]
+fn desktop_controller_restores_companion_preferences_from_local_storage() {
+    let database_path = std::env::temp_dir().join(format!(
+        "study-rpg-companion-preferences-{}-{}.sqlite3",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+
+    {
+        let store = SqliteStore::open(&database_path).unwrap();
+        let mut desktop =
+            DesktopController::load_or_create(store, "Nembx", CharacterClass::Scholar, 2_000)
+                .unwrap();
+
+        desktop
+            .set_companion_preferences(CompanionPreferences {
+                mode: CompanionMode::Expanded,
+                y_position: Some(248),
+            })
+            .unwrap();
+    }
+
+    {
+        let store = SqliteStore::open(&database_path).unwrap();
+        let desktop =
+            DesktopController::load_or_create(store, "Ignored", CharacterClass::Mage, 2_060)
+                .unwrap();
+
+        assert_eq!(
+            desktop.companion_preferences(),
+            CompanionPreferences {
+                mode: CompanionMode::Expanded,
+                y_position: Some(248),
+            }
+        );
     }
 
     std::fs::remove_file(database_path).unwrap();

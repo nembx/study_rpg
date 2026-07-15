@@ -2,6 +2,7 @@ use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, params};
 
+use crate::desktop::{CompanionMode, CompanionPreferences};
 use crate::player::{CharacterClass, Mood, Player};
 use crate::quest::{Quest, QuestTarget};
 use crate::session::{ActiveStudySession, StudySession};
@@ -164,6 +165,38 @@ impl SqliteStore {
         })))
     }
 
+    pub fn save_companion_preferences(
+        &mut self,
+        preferences: CompanionPreferences,
+    ) -> rusqlite::Result<()> {
+        self.conn.execute(
+            "INSERT INTO companion_preferences (id, mode, y_position)
+             VALUES (1, ?1, ?2)
+             ON CONFLICT(id) DO UPDATE SET
+                mode = excluded.mode,
+                y_position = excluded.y_position",
+            params![preferences.mode.as_str(), preferences.y_position],
+        )?;
+        Ok(())
+    }
+
+    pub fn load_companion_preferences(&self) -> rusqlite::Result<CompanionPreferences> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT mode, y_position FROM companion_preferences WHERE id = 1",
+                [],
+                |row| {
+                    Ok(CompanionPreferences {
+                        mode: CompanionMode::from_str(&row.get::<_, String>(0)?),
+                        y_position: row.get(1)?,
+                    })
+                },
+            )
+            .optional()?
+            .unwrap_or_default())
+    }
+
     fn migrate(&self) -> rusqlite::Result<()> {
         self.conn.execute_batch(
             "
@@ -217,6 +250,12 @@ impl SqliteStore {
                 topic TEXT NOT NULL,
                 skill_id INTEGER,
                 started_at_epoch_seconds INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS companion_preferences (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                mode TEXT NOT NULL,
+                y_position INTEGER
             );
             ",
         )?;

@@ -9,6 +9,44 @@ use crate::{
 pub struct DesktopController {
     app: StudyRpg,
     store: SqliteStore,
+    companion_preferences: CompanionPreferences,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompanionMode {
+    Compact,
+    Expanded,
+}
+
+impl CompanionMode {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Compact => "compact",
+            Self::Expanded => "expanded",
+        }
+    }
+
+    pub(crate) fn from_str(value: &str) -> Self {
+        match value {
+            "expanded" => Self::Expanded,
+            _ => Self::Compact,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CompanionPreferences {
+    pub mode: CompanionMode,
+    pub y_position: Option<i32>,
+}
+
+impl Default for CompanionPreferences {
+    fn default() -> Self {
+        Self {
+            mode: CompanionMode::Compact,
+            y_position: None,
+        }
+    }
 }
 
 impl DesktopController {
@@ -28,7 +66,13 @@ impl DesktopController {
             store.save(&app)?;
         }
 
-        Ok(Self { app, store })
+        let companion_preferences = store.load_companion_preferences()?;
+
+        Ok(Self {
+            app,
+            store,
+            companion_preferences,
+        })
     }
 
     pub fn start_session(
@@ -76,6 +120,19 @@ impl DesktopController {
         self.save_or_restore(previous_app)?;
 
         Ok(result)
+    }
+
+    pub fn companion_preferences(&self) -> CompanionPreferences {
+        self.companion_preferences
+    }
+
+    pub fn set_companion_preferences(
+        &mut self,
+        preferences: CompanionPreferences,
+    ) -> Result<(), DesktopError> {
+        self.store.save_companion_preferences(preferences)?;
+        self.companion_preferences = preferences;
+        Ok(())
     }
 
     fn save_or_restore(&mut self, previous_app: StudyRpg) -> Result<(), DesktopError> {
