@@ -3,14 +3,17 @@
   import { onMount } from "svelte";
   import type {
     CompanionMode,
+    CharacterClassId,
     CompanionPreferencesView,
     DashboardView,
     SessionResultView,
     StatisticsPeriodView,
     StatisticsView,
+    StartupStateView,
   } from "./types";
 
   let windowKind = "";
+  let startupState: StartupStateView | null = null;
   let dashboard: DashboardView | null = null;
   let statistics: StatisticsView | null = null;
   let mode: CompanionMode = "compact";
@@ -21,6 +24,21 @@
   let nowSeconds = Math.floor(Date.now() / 1000);
   let refreshCounter = 0;
   let feedbackTimer: ReturnType<typeof setTimeout> | undefined;
+  let characterName = "";
+  let characterClass: CharacterClassId = "scholar";
+
+  const characterClasses: {
+    id: CharacterClassId;
+    icon: string;
+    name: string;
+    description: string;
+  }[] = [
+    { id: "scholar", icon: "⌘", name: "学者", description: "以知识积累推动稳定成长" },
+    { id: "engineer", icon: "⚙", name: "工程师", description: "把复杂目标拆成可执行系统" },
+    { id: "mage", icon: "✦", name: "法师", description: "在专注中驾驭灵感与创造力" },
+    { id: "warrior", icon: "◆", name: "战士", description: "依靠纪律完成每日训练" },
+    { id: "archer", icon: "➶", name: "游侠", description: "瞄准目标并保持轻快节奏" },
+  ];
 
   $: recentTopics = dashboard
     ? [...new Set(dashboard.recentSessions.map((session) => session.topic))].slice(0, 3)
@@ -46,11 +64,13 @@
   async function initialize() {
     try {
       windowKind = await invoke<string>("window_kind");
+      startupState = await invoke<StartupStateView>("get_startup_state");
       if (windowKind === "companion") {
         const preferences = await invoke<CompanionPreferencesView>("get_companion_preferences");
         mode = preferences.mode;
+        if (startupState.needsCharacterCreation) await setMode("expanded");
       }
-      await refreshData(true);
+      if (!startupState.needsCharacterCreation) await refreshData(true);
     } catch (error) {
       setError(error);
     }
@@ -65,6 +85,25 @@
       errorMessage = "";
     } catch (error) {
       setError(error);
+    }
+  }
+
+  async function createFirstCharacter() {
+    const name = characterName.trim();
+    if (!name) {
+      errorMessage = "请先为角色取一个名字";
+      return;
+    }
+    busy = true;
+    try {
+      await invoke("create_character", { name, class: characterClass });
+      startupState = await invoke<StartupStateView>("get_startup_state");
+      errorMessage = "";
+      await refreshData(true);
+    } catch (error) {
+      setError(error);
+    } finally {
+      busy = false;
     }
   }
 
@@ -168,6 +207,10 @@
     return titles[title] ?? title;
   }
 
+  function localizedClass(classId: CharacterClassId) {
+    return characterClasses.find((item) => item.id === classId)?.name ?? classId;
+  }
+
   function localizedQuest(title: string) {
     const minutes = /^Study (\d+) minutes$/.exec(title);
     if (minutes) return `学习 ${minutes[1]} 分钟`;
@@ -204,10 +247,52 @@
   }
 </script>
 
-{#if !dashboard}
+{#if !startupState}
   <main class="loading-shell">
     <div class="loading-orb"></div>
     <span>{errorMessage || "正在唤醒冒险记录…"}</span>
+  </main>
+{:else if startupState.needsCharacterCreation}
+  <main class="onboarding-shell">
+    <div class="onboarding-glow"></div>
+    <header class="onboarding-header">
+      <div class="brand-mark large">S</div>
+      <div><span>NEW ADVENTURE</span><strong>创建你的学习角色</strong></div>
+    </header>
+    <section class="onboarding-copy">
+      <h1>准备开始成长了吗？</h1>
+      <p>选择一个代表你学习方式的职业。职业目前只影响身份展示，不会限制成长路线。</p>
+    </section>
+    <label class="character-name-label" for="character-name">冒险者名称</label>
+    <input
+      id="character-name"
+      class="character-name-input"
+      bind:value={characterName}
+      maxlength="24"
+      placeholder="输入你的名字"
+      on:keydown={(event) => event.key === "Enter" && createFirstCharacter()}
+    />
+    <div class="class-grid">
+      {#each characterClasses as item}
+        <button
+          class:selected={characterClass === item.id}
+          class="class-card"
+          on:click={() => (characterClass = item.id)}
+        >
+          <span>{item.icon}</span>
+          <div><strong>{item.name}</strong><small>{item.description}</small></div>
+        </button>
+      {/each}
+    </div>
+    {#if errorMessage}<div class="error-banner onboarding-error">{errorMessage}</div>{/if}
+    <button class="create-character-button" disabled={busy} on:click={createFirstCharacter}>
+      {busy ? "正在创建…" : `以${localizedClass(characterClass)}身份开始冒险`}
+    </button>
+  </main>
+{:else if !dashboard}
+  <main class="loading-shell">
+    <div class="loading-orb"></div>
+    <span>{errorMessage || "正在读取冒险记录…"}</span>
   </main>
 {:else if windowKind === "companion"}
   <main class:expanded={mode === "expanded"} class="companion-shell">
@@ -343,7 +428,7 @@
       <div class="sidebar-player">
         <span>LV {dashboard.level}</span>
         <strong>{dashboard.playerName}</strong>
-        <small>{localizedTitle(dashboard.title)}</small>
+        <small>{localizedClass(dashboard.playerClass)} · {localizedTitle(dashboard.title)}</small>
       </div>
     </aside>
 

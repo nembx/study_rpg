@@ -41,6 +41,7 @@ pub enum StudyRpgError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Dashboard {
     pub player_name: String,
+    pub player_class: CharacterClass,
     pub title: String,
     pub energy: u8,
     pub level: LevelProgress,
@@ -325,6 +326,7 @@ impl StudyRpg {
 
         Dashboard {
             player_name: self.player.name.clone(),
+            player_class: self.player.class,
             title: self.player.title.clone(),
             energy: self.player.energy,
             level,

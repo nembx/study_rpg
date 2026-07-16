@@ -56,6 +56,11 @@ StudyRpg::statistics_at(now)
 
 这样 UI 不需要复制规则，SQLite 也只是保存和恢复状态。
 
+桌面启动由 `DesktopController` 显式区分两种状态：空数据库进入
+`needs_character_creation`，用户提交名称和职业后才创建并保存 `StudyRpg`；已有数据库则直接恢复。
+桌面适配器不得再用默认“玩家”身份静默初始化。职业在当前版本只作为身份信息展示，不改变 XP、
+任务或统计规则。
+
 Dashboard 当前聚合：
 
 - 玩家等级和 XP 进度百分比

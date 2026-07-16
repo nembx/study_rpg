@@ -7,7 +7,7 @@ use crate::{
 };
 
 pub struct DesktopController {
-    app: StudyRpg,
+    app: Option<StudyRpg>,
     store: SqliteStore,
     companion_preferences: CompanionPreferences,
 }
@@ -50,22 +50,13 @@ impl Default for CompanionPreferences {
 }
 
 impl DesktopController {
-    pub fn load_or_create(
-        mut store: SqliteStore,
-        player_name: impl Into<String>,
-        class: CharacterClass,
-        current_epoch_seconds: u64,
-    ) -> Result<Self, DesktopError> {
-        let (mut app, created) = match store.load()? {
-            Some(app) => (app, false),
-            None => (StudyRpg::new(player_name, class), true),
-        };
-        let quests_refreshed = app.refresh_daily_quests_at(current_epoch_seconds);
-
-        if created || quests_refreshed {
-            store.save(&app)?;
+    pub fn load(mut store: SqliteStore, current_epoch_seconds: u64) -> Result<Self, DesktopError> {
+        let mut app = store.load()?;
+        if let Some(existing_app) = app.as_mut()
+            && existing_app.refresh_daily_quests_at(current_epoch_seconds)
+        {
+            store.save(existing_app)?;
         }
-
         let companion_preferences = store.load_companion_preferences()?;
 
         Ok(Self {
@@ -73,6 +64,45 @@ impl DesktopController {
             store,
             companion_preferences,
         })
+    }
+
+    pub fn load_or_create(
+        store: SqliteStore,
+        player_name: impl Into<String>,
+        class: CharacterClass,
+        current_epoch_seconds: u64,
+    ) -> Result<Self, DesktopError> {
+        let mut controller = Self::load(store, current_epoch_seconds)?;
+        if controller.needs_character_creation() {
+            controller.create_character(player_name, class, current_epoch_seconds)?;
+        }
+        Ok(controller)
+    }
+
+    pub fn needs_character_creation(&self) -> bool {
+        self.app.is_none()
+    }
+
+    pub fn create_character(
+        &mut self,
+        player_name: impl Into<String>,
+        class: CharacterClass,
+        current_epoch_seconds: u64,
+    ) -> Result<(), DesktopError> {
+        if self.app.is_some() {
+            return Err(DesktopError::CharacterAlreadyCreated);
+        }
+        let player_name = player_name.into();
+        let player_name = player_name.trim();
+        if player_name.is_empty() {
+            return Err(DesktopError::EmptyPlayerName);
+        }
+
+        let mut app = StudyRpg::new(player_name, class);
+        app.refresh_daily_quests_at(current_epoch_seconds);
+        self.store.save(&app)?;
+        self.app = Some(app);
+        Ok(())
     }
 
     pub fn start_session(
@@ -85,8 +115,8 @@ impl DesktopController {
             return Err(DesktopError::EmptyTopic);
         }
 
-        let previous_app = self.app.clone();
-        self.app.start_study_session(
+        let previous_app = self.app()?.clone();
+        self.app_mut()?.start_study_session(
             StudySessionStartInput {
                 topic: topic.to_string(),
                 skill_id: None,
@@ -97,25 +127,31 @@ impl DesktopController {
     }
 
     pub fn dashboard_at(&mut self, current_epoch_seconds: u64) -> Result<Dashboard, DesktopError> {
-        let previous_app = self.app.clone();
-        if self.app.refresh_daily_quests_at(current_epoch_seconds) {
+        let previous_app = self.app()?.clone();
+        if self
+            .app_mut()?
+            .refresh_daily_quests_at(current_epoch_seconds)
+        {
             self.save_or_restore(previous_app)?;
         }
 
-        Ok(self.app.dashboard_at(current_epoch_seconds))
+        Ok(self.app()?.dashboard_at(current_epoch_seconds))
     }
 
-    pub fn statistics_at(&self, current_epoch_seconds: u64) -> StudyStatisticsReport {
-        self.app.statistics_at(current_epoch_seconds)
+    pub fn statistics_at(
+        &self,
+        current_epoch_seconds: u64,
+    ) -> Result<StudyStatisticsReport, DesktopError> {
+        Ok(self.app()?.statistics_at(current_epoch_seconds))
     }
 
     pub fn finish_session(
         &mut self,
         ended_at_epoch_seconds: u64,
     ) -> Result<StudySessionResult, DesktopError> {
-        let previous_app = self.app.clone();
+        let previous_app = self.app()?.clone();
         let result = self
-            .app
+            .app_mut()?
             .finish_active_study_session(ended_at_epoch_seconds)?;
         self.save_or_restore(previous_app)?;
 
@@ -136,18 +172,30 @@ impl DesktopController {
     }
 
     fn save_or_restore(&mut self, previous_app: StudyRpg) -> Result<(), DesktopError> {
-        if let Err(error) = self.store.save(&self.app) {
-            self.app = previous_app;
+        let current_app = self.app()?.clone();
+        if let Err(error) = self.store.save(&current_app) {
+            self.app = Some(previous_app);
             return Err(error.into());
         }
 
         Ok(())
     }
+
+    fn app(&self) -> Result<&StudyRpg, DesktopError> {
+        self.app.as_ref().ok_or(DesktopError::CharacterNotCreated)
+    }
+
+    fn app_mut(&mut self) -> Result<&mut StudyRpg, DesktopError> {
+        self.app.as_mut().ok_or(DesktopError::CharacterNotCreated)
+    }
 }
 
 #[derive(Debug)]
 pub enum DesktopError {
+    EmptyPlayerName,
     EmptyTopic,
+    CharacterAlreadyCreated,
+    CharacterNotCreated,
     StudyRpg(StudyRpgError),
     Storage(rusqlite::Error),
 }
@@ -155,7 +203,10 @@ pub enum DesktopError {
 impl Display for DesktopError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            Self::EmptyPlayerName => formatter.write_str("请先输入角色名称"),
             Self::EmptyTopic => formatter.write_str("请先输入学习主题"),
+            Self::CharacterAlreadyCreated => formatter.write_str("角色已经创建"),
+            Self::CharacterNotCreated => formatter.write_str("请先创建角色"),
             Self::StudyRpg(StudyRpgError::StudySessionAlreadyActive) => {
                 formatter.write_str("已有正在进行的学习计时")
             }

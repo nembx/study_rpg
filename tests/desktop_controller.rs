@@ -48,7 +48,7 @@ fn desktop_controller_exposes_the_core_statistics_report() {
     desktop.start_session("Today", 10 * DAY).unwrap();
     desktop.finish_session(10 * DAY + 30 * 60).unwrap();
 
-    let report = desktop.statistics_at(10 * DAY + 30 * 60);
+    let report = desktop.statistics_at(10 * DAY + 30 * 60).unwrap();
 
     assert_eq!(report.today.total_minutes, 30);
     assert_eq!(report.all_time.total_minutes, 50);
@@ -127,6 +127,40 @@ fn desktop_controller_restores_companion_preferences_from_local_storage() {
                 y_position: Some(248),
             }
         );
+    }
+
+    std::fs::remove_file(database_path).unwrap();
+}
+
+#[test]
+fn first_run_character_creation_becomes_the_persisted_player_identity() {
+    let database_path = std::env::temp_dir().join(format!(
+        "study-rpg-character-creation-{}-{}.sqlite3",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+
+    {
+        let store = SqliteStore::open(&database_path).unwrap();
+        let mut desktop = DesktopController::load(store, 2_000).unwrap();
+
+        assert!(desktop.needs_character_creation());
+        desktop
+            .create_character("  Nembx  ", CharacterClass::Engineer, 2_000)
+            .unwrap();
+    }
+
+    {
+        let store = SqliteStore::open(&database_path).unwrap();
+        let mut desktop = DesktopController::load(store, 2_060).unwrap();
+        let dashboard = desktop.dashboard_at(2_060).unwrap();
+
+        assert!(!desktop.needs_character_creation());
+        assert_eq!(dashboard.player_name, "Nembx");
+        assert_eq!(dashboard.player_class, CharacterClass::Engineer);
     }
 
     std::fs::remove_file(database_path).unwrap();

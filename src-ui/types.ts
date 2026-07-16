@@ -1,4 +1,11 @@
 export type CompanionMode = "compact" | "expanded";
+export type CharacterClassId = "scholar" | "engineer" | "mage" | "warrior" | "archer";
+
+export interface StartupStateView {
+  needsCharacterCreation: boolean;
+  playerName?: string;
+  playerClass?: CharacterClassId;
+}
 
 export interface QuestView {
   id: number;
@@ -27,6 +34,7 @@ export interface ActiveSessionView {
 
 export interface DashboardView {
   playerName: string;
+  playerClass: CharacterClassId;
   title: string;
   energy: number;
   level: number;

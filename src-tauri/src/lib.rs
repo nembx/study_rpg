@@ -26,6 +26,7 @@ struct AppState {
 #[serde(rename_all = "camelCase")]
 struct DashboardView {
     player_name: String,
+    player_class: &'static str,
     title: String,
     energy: u8,
     level: u32,
@@ -78,6 +79,16 @@ struct ActiveSessionView {
 struct CompanionPreferencesView {
     mode: &'static str,
     y_position: Option<i32>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StartupStateView {
+    needs_character_creation: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    player_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    player_class: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -144,11 +155,42 @@ fn get_dashboard(state: State<'_, AppState>) -> Result<DashboardView, String> {
 }
 
 #[tauri::command]
+fn get_startup_state(state: State<'_, AppState>) -> Result<StartupStateView, String> {
+    let mut controller = lock_controller(&state)?;
+    if controller.needs_character_creation() {
+        return Ok(StartupStateView {
+            needs_character_creation: true,
+            player_name: None,
+            player_class: None,
+        });
+    }
+    let dashboard = controller
+        .dashboard_at(current_epoch_seconds())
+        .map_err(|error| error.to_string())?;
+    Ok(StartupStateView {
+        needs_character_creation: false,
+        player_name: Some(dashboard.player_name),
+        player_class: Some(character_class_id(dashboard.player_class)),
+    })
+}
+
+#[tauri::command]
+fn create_character(name: String, class: String, state: State<'_, AppState>) -> Result<(), String> {
+    let class =
+        character_class_from_id(&class).ok_or_else(|| "请选择有效的角色职业".to_string())?;
+    let mut controller = lock_controller(&state)?;
+    controller
+        .create_character(name, class, current_epoch_seconds())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn get_statistics(state: State<'_, AppState>) -> Result<StatisticsView, String> {
     let controller = lock_controller(&state)?;
-    Ok(StatisticsView::from(
-        controller.statistics_at(current_epoch_seconds()),
-    ))
+    controller
+        .statistics_at(current_epoch_seconds())
+        .map(StatisticsView::from)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -423,12 +465,7 @@ fn initialize_controller(app: &AppHandle) -> Result<DesktopController, Box<dyn s
     let database_path = app_data_dir.join("study_rpg.sqlite3");
     migrate_legacy_database(&database_path)?;
     let store = SqliteStore::open(database_path)?;
-    Ok(DesktopController::load_or_create(
-        store,
-        "玩家",
-        CharacterClass::Scholar,
-        current_epoch_seconds(),
-    )?)
+    Ok(DesktopController::load(store, current_epoch_seconds())?)
 }
 
 fn migrate_legacy_database(destination: &PathBuf) -> std::io::Result<()> {
@@ -446,10 +483,32 @@ fn current_epoch_seconds() -> u64 {
         .as_secs()
 }
 
+fn character_class_id(class: CharacterClass) -> &'static str {
+    match class {
+        CharacterClass::Scholar => "scholar",
+        CharacterClass::Engineer => "engineer",
+        CharacterClass::Mage => "mage",
+        CharacterClass::Warrior => "warrior",
+        CharacterClass::Archer => "archer",
+    }
+}
+
+fn character_class_from_id(value: &str) -> Option<CharacterClass> {
+    match value {
+        "scholar" => Some(CharacterClass::Scholar),
+        "engineer" => Some(CharacterClass::Engineer),
+        "mage" => Some(CharacterClass::Mage),
+        "warrior" => Some(CharacterClass::Warrior),
+        "archer" => Some(CharacterClass::Archer),
+        _ => None,
+    }
+}
+
 impl From<Dashboard> for DashboardView {
     fn from(value: Dashboard) -> Self {
         Self {
             player_name: value.player_name,
+            player_class: character_class_id(value.player_class),
             title: value.title,
             energy: value.energy,
             level: value.level.level,
@@ -587,6 +646,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             window_kind,
+            get_startup_state,
+            create_character,
             get_dashboard,
             get_statistics,
             get_companion_preferences,
@@ -608,4 +669,74 @@ pub fn run() {
             api.prevent_exit();
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+    use study_rpg::{DesktopController, SqliteStore};
+    use tauri::WebviewWindowBuilder;
+    use tauri::webview::InvokeRequest;
+
+    use super::{AppState, create_character, get_startup_state};
+
+    #[test]
+    fn ipc_creates_the_first_run_character_and_reports_the_ready_identity() {
+        let controller = DesktopController::load(SqliteStore::in_memory().unwrap(), 1_000).unwrap();
+        let app = tauri::test::mock_builder()
+            .manage(AppState {
+                controller: std::sync::Mutex::new(controller),
+                move_generation: std::sync::atomic::AtomicU64::new(0),
+            })
+            .invoke_handler(tauri::generate_handler![
+                get_startup_state,
+                create_character
+            ])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let webview = WebviewWindowBuilder::new(&app, "companion", Default::default())
+            .build()
+            .unwrap();
+
+        let before = invoke(&webview, "get_startup_state", json!({}));
+        assert_eq!(before, json!({ "needsCharacterCreation": true }));
+
+        invoke(
+            &webview,
+            "create_character",
+            json!({ "name": "Nembx", "class": "engineer" }),
+        );
+        let after = invoke(&webview, "get_startup_state", json!({}));
+
+        assert_eq!(
+            after,
+            json!({
+                "needsCharacterCreation": false,
+                "playerName": "Nembx",
+                "playerClass": "engineer"
+            })
+        );
+    }
+
+    fn invoke(
+        webview: &tauri::WebviewWindow<tauri::test::MockRuntime>,
+        command: &str,
+        body: Value,
+    ) -> Value {
+        tauri::test::get_ipc_response(
+            webview,
+            InvokeRequest {
+                cmd: command.into(),
+                callback: tauri::ipc::CallbackFn(0),
+                error: tauri::ipc::CallbackFn(1),
+                url: "tauri://localhost".parse().unwrap(),
+                body: tauri::ipc::InvokeBody::Json(body),
+                headers: Default::default(),
+                invoke_key: tauri::test::INVOKE_KEY.to_string(),
+            },
+        )
+        .unwrap()
+        .deserialize::<Value>()
+        .unwrap()
+    }
 }
