@@ -1,12 +1,14 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { onMount } from "svelte";
+  import DailyQuestStatus from "./DailyQuestStatus.svelte";
   import type {
     CompanionMode,
     CharacterClassId,
     CompanionPreferencesView,
     DashboardView,
     SessionResultView,
+    QuestKind,
     StatisticsPeriodView,
     StatisticsView,
     StartupStateView,
@@ -211,12 +213,10 @@
     return characterClasses.find((item) => item.id === classId)?.name ?? classId;
   }
 
-  function localizedQuest(title: string) {
-    const minutes = /^Study (\d+) minutes$/.exec(title);
-    if (minutes) return `学习 ${minutes[1]} 分钟`;
-    const sessions = /^Complete (\d+) study session$/.exec(title);
-    if (sessions) return `完成 ${sessions[1]} 次学习`;
-    return title;
+  function localizedQuest(quest: { kind: QuestKind; target: number; title: string }) {
+    if (quest.kind === "studyMinutes") return `学习 ${quest.target} 分钟`;
+    if (quest.kind === "completeSessions") return `完成 ${quest.target} 次学习`;
+    return quest.title;
   }
 
   function periodEntries(report: StatisticsView): [string, StatisticsPeriodView][] {
@@ -365,16 +365,48 @@
         {/if}
 
         {#if feedback}
-          <section class="feedback-card">
-            <div class="feedback-spark">✦</div>
-            <div>
-              <span>冒险结算</span>
-              <strong>+{feedback.totalGainedXp} XP</strong>
-              <p>{feedback.topic} · {feedback.durationMinutes} 分钟</p>
-              {#if feedback.levelAfter > feedback.levelBefore}
-                <em>升级！LV {feedback.levelBefore} → LV {feedback.levelAfter}</em>
-              {/if}
+          <section aria-live="polite" class:daily-clear={feedback.dailyCompletionBonusXp > 0} class="feedback-card">
+            <div class="feedback-summary">
+              <div class="feedback-spark">✦</div>
+              <div class="feedback-copy">
+                <span>冒险结算</span>
+                <strong>{feedback.topic}</strong>
+                <p>{feedback.durationMinutes} 分钟专注</p>
+              </div>
+              <div class="feedback-total">
+                <span>本次总计</span>
+                <strong>+{feedback.totalGainedXp} XP</strong>
+              </div>
             </div>
+
+            <div class="reward-breakdown">
+              <div><span>专注奖励</span><strong>+{feedback.studyXp} XP</strong></div>
+            </div>
+
+            {#if feedback.completedQuests.length > 0}
+              <div class="quest-completion-feed">
+                <div class="feedback-label"><span>QUEST DETAILS</span><strong>任务奖励共 +{feedback.questRewardXp} XP</strong></div>
+                {#each feedback.completedQuests as completedQuest}
+                  <div class="completed-quest-row">
+                    <span class="completed-quest-check">✓</span>
+                    <strong>{localizedQuest(completedQuest)}</strong>
+                    <em>明细 +{completedQuest.rewardXp} XP</em>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+
+            {#if feedback.dailyCompletionBonusXp > 0}
+              <div class="daily-clear-feedback">
+                <div class="daily-clear-burst">✦</div>
+                <div><span>DAILY COMPLETE</span><strong>今日任务全清</strong><small>本次总计已包含全清奖励</small></div>
+                <em>+{feedback.dailyCompletionBonusXp} XP</em>
+              </div>
+            {/if}
+
+            {#if feedback.levelAfter > feedback.levelBefore}
+              <div class="level-up-feedback"><span>LEVEL UP</span><strong>LV {feedback.levelBefore} → LV {feedback.levelAfter}</strong></div>
+            {/if}
           </section>
         {/if}
 
@@ -391,25 +423,27 @@
         <section class="quest-panel">
           <div class="section-title">
             <div><span>DAILY QUESTS</span><strong>今日任务</strong></div>
-            <button on:click={openDashboard}>查看详情 ↗</button>
+            <div class="section-actions"><strong>{dashboard.dailyQuestStatus.completedCount}/{dashboard.dailyQuestStatus.totalCount}</strong><button on:click={openDashboard}>查看详情 ↗</button></div>
           </div>
-          <div class="quest-list">
-            {#each dashboard.quests as quest}
-              <article class:complete={quest.completed} class="quest-item">
-                <div class="quest-status">{quest.completed ? "✓" : ""}</div>
-                <div class="quest-copy">
-                  <div><strong>{localizedQuest(quest.title)}</strong><span>+{quest.rewardXp} XP</span></div>
-                  <div class="progress-track">
-                    <div style={`width: ${Math.min(100, (quest.current / Math.max(1, quest.target)) * 100)}%`}></div>
+          <DailyQuestStatus
+            status={dashboard.dailyQuestStatus}
+            completedMessage="奖励已结算，明天继续冒险"
+          >
+            <div class="quest-list">
+              {#each dashboard.quests as quest}
+                <article class:complete={quest.completed} class="quest-item">
+                  <div class="quest-status">{quest.completed ? "✓" : ""}</div>
+                  <div class="quest-copy">
+                    <div><strong>{localizedQuest(quest)}</strong><span>+{quest.rewardXp} XP</span></div>
+                    <div class="progress-track">
+                      <div style={`width: ${quest.progressPercent}%`}></div>
+                    </div>
+                    <small>{quest.completed ? "已完成" : `${quest.current} / ${quest.target}`}</small>
                   </div>
-                  <small>{quest.current} / {quest.target}</small>
-                </div>
-              </article>
-            {/each}
-          </div>
-          {#if dashboard.dailyQuestCompleted}
-            <div class="all-clear">✦ 今日任务全清 · +{dashboard.dailyQuestRewardXp} XP</div>
-          {/if}
+                </article>
+              {/each}
+            </div>
+          </DailyQuestStatus>
         </section>
       </div>
     {:else if errorMessage}
@@ -456,15 +490,20 @@
 
       <section id="quests" class="dashboard-columns">
         <article class="dashboard-panel">
-          <div class="panel-heading"><div><span>DAILY QUESTS</span><h2>今日任务</h2></div><strong>{dashboard.quests.filter((quest) => quest.completed).length}/{dashboard.quests.length}</strong></div>
-          <div class="dashboard-quest-list">
-            {#each dashboard.quests as quest}
-              <div class:complete={quest.completed} class="dashboard-quest">
-                <div class="quest-status">{quest.completed ? "✓" : ""}</div>
-                <div class="quest-copy"><div><strong>{localizedQuest(quest.title)}</strong><span>+{quest.rewardXp} XP</span></div><div class="progress-track"><div style={`width: ${Math.min(100, (quest.current / Math.max(1, quest.target)) * 100)}%`}></div></div><small>{quest.current} / {quest.target}</small></div>
-              </div>
-            {/each}
-          </div>
+          <div class="panel-heading"><div><span>DAILY QUESTS</span><h2>今日任务</h2></div><strong>{dashboard.dailyQuestStatus.completedCount}/{dashboard.dailyQuestStatus.totalCount}</strong></div>
+          <DailyQuestStatus
+            status={dashboard.dailyQuestStatus}
+            completedMessage="全清奖励已计入角色经验"
+          >
+            <div class="dashboard-quest-list">
+              {#each dashboard.quests as quest}
+                <div class:complete={quest.completed} class="dashboard-quest">
+                  <div class="quest-status">{quest.completed ? "✓" : ""}</div>
+                  <div class="quest-copy"><div><strong>{localizedQuest(quest)}</strong><span>+{quest.rewardXp} XP</span></div><div class="progress-track"><div style={`width: ${quest.progressPercent}%`}></div></div><small>{quest.completed ? "已完成" : `${quest.current} / ${quest.target}`}</small></div>
+                </div>
+              {/each}
+            </div>
+          </DailyQuestStatus>
         </article>
 
         <article class="dashboard-panel">

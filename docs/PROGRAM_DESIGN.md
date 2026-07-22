@@ -65,7 +65,7 @@ Dashboard 当前聚合：
 
 - 玩家等级和 XP 进度百分比
 - 今日学习分钟数
-- 每日任务日期和进度
+- 每日任务日期、单项进度、完成数、剩余数和总体进度百分比
 - 每日任务是否全清以及全清奖励 XP
 - 最近学习记录
 - 进行中的学习 Session、已计时分钟和预计 XP
@@ -126,7 +126,12 @@ SqliteStore::load()
 `StudyRpg` 通过 `snapshot()` 和 `from_snapshot()` 与存储适配器协作。UI 不直接操作 SQLite 表，也不需要知道实体之间的保存顺序。进行中的 `ActiveStudySession` 也会进入 snapshot，应用重启后可以恢复计时状态。
 
 每日任务全清奖励会自动结算，并在 snapshot 中记录当天是否已经发放。刷新到新日期时该状态重置；SQLite 恢复后则继续保持，避免同一天重复领取奖励。
-`StudySessionResult` 分别返回单项任务奖励 `quest_reward_xp` 和全清奖励 `daily_completion_bonus_xp`，调用方将两者作为独立反馈展示。
+`StudySessionResult` 分别返回新完成的任务、单项任务奖励 `quest_reward_xp` 和全清奖励
+`daily_completion_bonus_xp`。Tauri IPC 保留每个新完成任务的稳定类型、目标与奖励 XP，Companion 在学习结算中
+分别展示专注 XP、任务奖励、全清奖励和等级变化。Companion 与 Dashboard 的 Daily Quest 面板还会
+持续显示总体进度，以及 `+150 XP` 全清奖励的待领取或已达成状态。
+单项任务进度百分比和总体进度百分比均由核心 Dashboard 聚合；总体百分比取各任务归一化进度的
+平均值。UI 只渲染这些值，不重新定义任务进度规则。
 
 ## 数据规则
 

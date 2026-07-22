@@ -23,6 +23,7 @@ Study RPG 是一个 Local First 的学习成长软件。目标不是做另一个
 - 生成 Dashboard 聚合数据，包括任务进度、最近学习记录和进行中的学习估算
 - 使用 SQLite 保存和恢复本地状态，包括进行中的学习 Session
 - 提供贴在屏幕右侧的 Companion，可收起/展开、上下拖动、开始/结束学习计时并查看即时成长反馈
+- 学习结算会分别展示专注 XP、新完成的 Daily Quest、任务奖励、全清奖励与等级变化
 - 提供独立 Dashboard 窗口，展示任务、最近记录和完整 Statistics
 - 关闭窗口后驻留系统托盘；学习计时与窗口偏好均可在重启后恢复
 - 提供 Statistics 页面，展示周期汇总、七日学习时长/XP 趋势和连续学习天数
@@ -77,9 +78,10 @@ src-tauri/
 └── tauri.conf.json
 
 src-ui/
-├── App.svelte     # Companion 与 Dashboard 视图
-├── styles.css     # 桌面视觉样式
-└── types.ts       # Rust IPC 数据类型
+├── App.svelte               # Companion 与 Dashboard 视图
+├── DailyQuestStatus.svelte  # Daily Quest 总进度与全清奖励状态
+├── styles.css               # 桌面视觉样式
+└── types.ts                 # Rust IPC 数据类型
 ```
 
 ## 设计原则
@@ -108,6 +110,7 @@ src-ui/
 - 核心成长循环
 - 学习计时器
 - 每日任务按日期刷新
+- Daily Quest 的单项进度、完成结算与全清奖励视觉反馈
 - Dashboard 聚合数据
 - SQLite 持久化
 - Tauri 2 + Svelte 桌面应用
@@ -118,5 +121,4 @@ src-ui/
 
 下一步：
 
-- 继续完善 Daily Quest 的视觉反馈
 - 记录并展示等级变化与技能成长历史

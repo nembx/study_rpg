@@ -53,6 +53,26 @@ fn dashboard_exposes_daily_quest_completion_feedback() {
 }
 
 #[test]
+fn dashboard_aggregates_daily_quest_progress_for_ui_callers() {
+    let mut app = StudyRpg::new("Nembx", CharacterClass::Scholar);
+    app.complete_study_session(StudySessionInput {
+        topic: "Make partial daily progress".to_string(),
+        skill_id: None,
+        duration_minutes: 15,
+    });
+
+    let dashboard = app.dashboard();
+    let progress = dashboard.daily_quest_completion;
+
+    assert_eq!(progress.completed_count, 1);
+    assert_eq!(progress.total_count, 2);
+    assert_eq!(progress.remaining_count, 1);
+    assert_eq!(progress.progress_percent, 75);
+    assert_eq!(dashboard.quest_progress[0].progress_percent, 50);
+    assert_eq!(dashboard.quest_progress[1].progress_percent, 100);
+}
+
+#[test]
 fn restored_daily_quest_state_does_not_grant_the_completion_bonus_again() {
     let mut store = SqliteStore::in_memory().unwrap();
     let mut app = StudyRpg::new("Nembx", CharacterClass::Scholar);

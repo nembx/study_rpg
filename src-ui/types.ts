@@ -1,5 +1,6 @@
 export type CompanionMode = "compact" | "expanded";
 export type CharacterClassId = "scholar" | "engineer" | "mage" | "warrior" | "archer";
+export type QuestKind = "studyMinutes" | "completeSessions";
 
 export interface StartupStateView {
   needsCharacterCreation: boolean;
@@ -9,11 +10,22 @@ export interface StartupStateView {
 
 export interface QuestView {
   id: number;
+  kind: QuestKind;
   title: string;
   current: number;
   target: number;
+  progressPercent: number;
   rewardXp: number;
   completed: boolean;
+}
+
+export interface DailyQuestStatusView {
+  completed: boolean;
+  completedCount: number;
+  totalCount: number;
+  remainingCount: number;
+  progressPercent: number;
+  rewardXp: number;
 }
 
 export interface SessionView {
@@ -45,8 +57,7 @@ export interface DashboardView {
   todayMinutes: number;
   totalSessions: number;
   quests: QuestView[];
-  dailyQuestCompleted: boolean;
-  dailyQuestRewardXp: number;
+  dailyQuestStatus: DailyQuestStatusView;
   recentSessions: SessionView[];
   activeSession: ActiveSessionView | null;
 }
@@ -56,6 +67,13 @@ export interface CompanionPreferencesView {
   yPosition: number | null;
 }
 
+export interface CompletedQuestView {
+  kind: QuestKind;
+  target: number;
+  title: string;
+  rewardXp: number;
+}
+
 export interface SessionResultView {
   topic: string;
   durationMinutes: number;
@@ -63,7 +81,7 @@ export interface SessionResultView {
   questRewardXp: number;
   dailyCompletionBonusXp: number;
   totalGainedXp: number;
-  completedQuests: string[];
+  completedQuests: CompletedQuestView[];
   levelBefore: number;
   levelAfter: number;
 }

@@ -1,5 +1,5 @@
 use crate::player::{CharacterClass, Player, XpGrant};
-use crate::quest::{Quest, evaluate_quests, progress_for_quest};
+use crate::quest::{Quest, QuestTarget, evaluate_quests, progress_for_quest};
 use crate::session::{
     ActiveStudySession, StudySession, completed_minutes_between, epoch_day, xp_for_duration,
 };
@@ -58,6 +58,10 @@ pub struct Dashboard {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DashboardDailyQuestCompletion {
     pub completed: bool,
+    pub completed_count: u32,
+    pub total_count: u32,
+    pub remaining_count: u32,
+    pub progress_percent: u8,
     pub reward_xp: u32,
 }
 
@@ -66,8 +70,10 @@ pub struct DashboardQuest {
     pub id: u64,
     pub epoch_day: u64,
     pub title: String,
+    pub quest_target: QuestTarget,
     pub current: u32,
     pub target: u32,
+    pub progress_percent: u8,
     pub reward_xp: u32,
     pub completed: bool,
 }
@@ -323,6 +329,8 @@ impl StudyRpg {
     fn build_dashboard(&self, current_epoch_seconds: Option<u64>) -> Dashboard {
         let statistics = self.statistics();
         let level = self.player.level_progress();
+        let quest_progress = self.dashboard_quests();
+        let daily_quest_completion = dashboard_daily_quest_completion(&quest_progress);
 
         Dashboard {
             player_name: self.player.name.clone(),
@@ -336,12 +344,8 @@ impl StudyRpg {
                 .map(|now| self.study_minutes_for_day(now))
                 .unwrap_or(statistics.total_minutes),
             total_sessions: statistics.total_sessions,
-            quest_progress: self.dashboard_quests(),
-            daily_quest_completion: DashboardDailyQuestCompletion {
-                completed: !self.daily_quests.is_empty()
-                    && self.daily_quests.iter().all(|quest| quest.completed),
-                reward_xp: DAILY_COMPLETION_BONUS_XP,
-            },
+            quest_progress,
+            daily_quest_completion,
             recent_sessions: self.recent_sessions(5),
             active_session: self.dashboard_active_session(current_epoch_seconds),
         }
@@ -360,12 +364,15 @@ impl StudyRpg {
             .iter()
             .map(|quest| {
                 let progress = progress_for_quest(quest, &self.sessions);
+                let current = progress.current.min(progress.target);
                 DashboardQuest {
                     id: quest.id,
                     epoch_day: quest.epoch_day,
                     title: quest.title.clone(),
-                    current: progress.current.min(progress.target),
+                    quest_target: quest.target,
+                    current,
                     target: progress.target,
+                    progress_percent: quest_progress_percent(current, progress.target),
                     reward_xp: quest.reward_xp,
                     completed: progress.completed,
                 }
@@ -453,6 +460,38 @@ fn xp_progress_percent(level: LevelProgress) -> u8 {
     }
 
     ((level.xp_into_level.saturating_mul(100)) / level.xp_for_next_level).min(100) as u8
+}
+
+fn quest_progress_percent(current: u32, target: u32) -> u8 {
+    if target == 0 {
+        return 100;
+    }
+
+    ((u64::from(current) * 100) / u64::from(target)).min(100) as u8
+}
+
+fn dashboard_daily_quest_completion(quests: &[DashboardQuest]) -> DashboardDailyQuestCompletion {
+    let total_count = quests.len() as u32;
+    let completed_count = quests.iter().filter(|quest| quest.completed).count() as u32;
+    let remaining_count = total_count.saturating_sub(completed_count);
+    let progress_percent = if quests.is_empty() {
+        0
+    } else {
+        let total_progress = quests
+            .iter()
+            .map(|quest| u64::from(quest.progress_percent))
+            .sum::<u64>();
+        (total_progress / quests.len() as u64).min(100) as u8
+    };
+
+    DashboardDailyQuestCompletion {
+        completed: total_count > 0 && completed_count == total_count,
+        completed_count,
+        total_count,
+        remaining_count,
+        progress_percent,
+        reward_xp: DAILY_COMPLETION_BONUS_XP,
+    }
 }
 
 fn elapsed_minutes_since(started_at_epoch_seconds: u64, current_epoch_seconds: u64) -> u32 {

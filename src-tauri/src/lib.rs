@@ -7,8 +7,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use study_rpg::{
     CalendarDate, CharacterClass, CompanionDisplay, CompanionMode, CompanionPreferences,
-    CompanionWindowBounds, Dashboard, DesktopController, SqliteStore, StudySessionResult,
-    StudyStatistics, StudyStatisticsReport, companion_window_bounds,
+    CompanionWindowBounds, Dashboard, DashboardDailyQuestCompletion, DesktopController,
+    SqliteStore, StudySessionResult, StudyStatistics, StudyStatisticsReport,
+    companion_window_bounds, quest::QuestTarget,
 };
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -37,19 +38,31 @@ struct DashboardView {
     today_minutes: u32,
     total_sessions: u32,
     quests: Vec<QuestView>,
-    daily_quest_completed: bool,
-    daily_quest_reward_xp: u32,
+    daily_quest_status: DailyQuestStatusView,
     recent_sessions: Vec<SessionView>,
     active_session: Option<ActiveSessionView>,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct DailyQuestStatusView {
+    completed: bool,
+    completed_count: u32,
+    total_count: u32,
+    remaining_count: u32,
+    progress_percent: u8,
+    reward_xp: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct QuestView {
     id: u64,
+    kind: &'static str,
     title: String,
     current: u32,
     target: u32,
+    progress_percent: u8,
     reward_xp: u32,
     completed: bool,
 }
@@ -100,9 +113,18 @@ struct SessionResultView {
     quest_reward_xp: u32,
     daily_completion_bonus_xp: u32,
     total_gained_xp: u32,
-    completed_quests: Vec<String>,
+    completed_quests: Vec<CompletedQuestView>,
     level_before: u32,
     level_after: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CompletedQuestView {
+    kind: &'static str,
+    target: u32,
+    title: String,
+    reward_xp: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -521,17 +543,21 @@ impl From<Dashboard> for DashboardView {
             quests: value
                 .quest_progress
                 .into_iter()
-                .map(|quest| QuestView {
-                    id: quest.id,
-                    title: quest.title,
-                    current: quest.current,
-                    target: quest.target,
-                    reward_xp: quest.reward_xp,
-                    completed: quest.completed,
+                .map(|quest| {
+                    let (kind, _) = quest_target_view(quest.quest_target);
+                    QuestView {
+                        id: quest.id,
+                        kind,
+                        title: quest.title,
+                        current: quest.current,
+                        target: quest.target,
+                        progress_percent: quest.progress_percent,
+                        reward_xp: quest.reward_xp,
+                        completed: quest.completed,
+                    }
                 })
                 .collect(),
-            daily_quest_completed: value.daily_quest_completion.completed,
-            daily_quest_reward_xp: value.daily_quest_completion.reward_xp,
+            daily_quest_status: value.daily_quest_completion.into(),
             recent_sessions: value
                 .recent_sessions
                 .into_iter()
@@ -578,11 +604,39 @@ impl From<StudySessionResult> for SessionResultView {
             completed_quests: value
                 .completed_quests
                 .into_iter()
-                .map(|quest| quest.title)
+                .map(|quest| {
+                    let (kind, target) = quest_target_view(quest.target);
+                    CompletedQuestView {
+                        kind,
+                        target,
+                        title: quest.title,
+                        reward_xp: quest.reward_xp,
+                    }
+                })
                 .collect(),
             level_before: value.player_xp.before.level,
             level_after: value.player_xp.after.level,
         }
+    }
+}
+
+impl From<DashboardDailyQuestCompletion> for DailyQuestStatusView {
+    fn from(value: DashboardDailyQuestCompletion) -> Self {
+        Self {
+            completed: value.completed,
+            completed_count: value.completed_count,
+            total_count: value.total_count,
+            remaining_count: value.remaining_count,
+            progress_percent: value.progress_percent,
+            reward_xp: value.reward_xp,
+        }
+    }
+}
+
+fn quest_target_view(target: QuestTarget) -> (&'static str, u32) {
+    match target {
+        QuestTarget::StudyMinutes(target) => ("studyMinutes", target),
+        QuestTarget::CompleteSessions(target) => ("completeSessions", target),
     }
 }
 
@@ -674,11 +728,61 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use serde_json::{Value, json};
-    use study_rpg::{DesktopController, SqliteStore};
+    use study_rpg::{CharacterClass, DesktopController, SqliteStore, StudyRpg, StudySessionInput};
     use tauri::WebviewWindowBuilder;
     use tauri::webview::InvokeRequest;
 
-    use super::{AppState, create_character, get_startup_state};
+    use super::{AppState, DashboardView, SessionResultView, create_character, get_startup_state};
+
+    #[test]
+    fn session_result_view_keeps_each_completed_quest_reward_for_visual_feedback() {
+        let mut app = StudyRpg::new("Nembx", CharacterClass::Scholar);
+        let result = app.complete_study_session(StudySessionInput {
+            topic: "Complete today's quests".to_string(),
+            skill_id: None,
+            duration_minutes: 30,
+        });
+
+        let view = serde_json::to_value(SessionResultView::from(result)).unwrap();
+
+        assert_eq!(
+            view["completedQuests"],
+            json!([
+                {
+                    "kind": "studyMinutes",
+                    "target": 30,
+                    "title": "Study 30 minutes",
+                    "rewardXp": 60
+                },
+                {
+                    "kind": "completeSessions",
+                    "target": 1,
+                    "title": "Complete 1 study session",
+                    "rewardXp": 40
+                }
+            ])
+        );
+    }
+
+    #[test]
+    fn dashboard_view_keeps_core_daily_quest_progress_for_ui_rendering() {
+        let mut app = StudyRpg::new("Nembx", CharacterClass::Scholar);
+        app.complete_study_session(StudySessionInput {
+            topic: "Partial daily progress".to_string(),
+            skill_id: None,
+            duration_minutes: 15,
+        });
+
+        let view = serde_json::to_value(DashboardView::from(app.dashboard())).unwrap();
+
+        assert_eq!(view["dailyQuestStatus"]["completedCount"], 1);
+        assert_eq!(view["dailyQuestStatus"]["totalCount"], 2);
+        assert_eq!(view["dailyQuestStatus"]["remainingCount"], 1);
+        assert_eq!(view["dailyQuestStatus"]["progressPercent"], 75);
+        assert_eq!(view["quests"][0]["kind"], "studyMinutes");
+        assert_eq!(view["quests"][0]["progressPercent"], 50);
+        assert_eq!(view["quests"][1]["progressPercent"], 100);
+    }
 
     #[test]
     fn ipc_creates_the_first_run_character_and_reports_the_ready_identity() {
