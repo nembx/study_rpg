@@ -1,5 +1,6 @@
 pub mod companion;
 pub mod desktop;
+pub mod growth;
 pub mod player;
 pub mod quest;
 pub mod session;
@@ -11,12 +12,13 @@ pub mod xp;
 
 pub use companion::{CompanionDisplay, CompanionWindowBounds, companion_window_bounds};
 pub use desktop::{CompanionMode, CompanionPreferences, DesktopController, DesktopError};
+pub use growth::{GrowthEvent, GrowthEventKind};
 pub use player::{CharacterClass, MAX_ENERGY, Player};
 pub use session::{ActiveStudySession, StudySession};
 pub use statistics::{CalendarDate, DailyStudyStatistics, StudyStatistics, StudyStatisticsReport};
 pub use storage::SqliteStore;
 pub use study_rpg::{
     Dashboard, DashboardActiveSession, DashboardDailyQuestCompletion, DashboardQuest,
-    DashboardSession, StudyRpg, StudyRpgError, StudySessionInput, StudySessionResult,
-    StudySessionStartInput,
+    DashboardSession, DashboardSkill, StudyRpg, StudyRpgError, StudySessionInput,
+    StudySessionResult, StudySessionStartInput,
 };

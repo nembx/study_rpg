@@ -1,3 +1,4 @@
+use crate::growth::{GrowthEvent, GrowthEventKind};
 use crate::player::{CharacterClass, Player, XpGrant};
 use crate::quest::{Quest, QuestTarget, evaluate_quests, progress_for_quest};
 use crate::session::{
@@ -29,6 +30,7 @@ pub struct StudySessionResult {
     pub completed_quests: Vec<Quest>,
     pub daily_completion_bonus_xp: u32,
     pub quest_reward_xp: u32,
+    pub growth_events: Vec<GrowthEvent>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,9 +51,11 @@ pub struct Dashboard {
     pub xp_progress_percent: u8,
     pub today_minutes: u32,
     pub total_sessions: u32,
+    pub skills: Vec<DashboardSkill>,
     pub quest_progress: Vec<DashboardQuest>,
     pub daily_quest_completion: DashboardDailyQuestCompletion,
     pub recent_sessions: Vec<DashboardSession>,
+    pub growth_history: Vec<GrowthEvent>,
     pub active_session: Option<DashboardActiveSession>,
 }
 
@@ -88,6 +92,18 @@ pub struct DashboardSession {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DashboardSkill {
+    pub id: u64,
+    pub name: String,
+    pub level: u32,
+    pub total_xp: u32,
+    pub xp_into_level: u32,
+    pub xp_for_next_level: u32,
+    pub xp_progress_percent: u8,
+    pub mastery_percent: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DashboardActiveSession {
     pub topic: String,
     pub skill_id: Option<u64>,
@@ -102,11 +118,13 @@ pub struct StudyRpg {
     player: Player,
     skills: Vec<Skill>,
     sessions: Vec<StudySession>,
+    growth_events: Vec<GrowthEvent>,
     daily_quests: Vec<Quest>,
     daily_completion_bonus_claimed: bool,
     active_session: Option<ActiveStudySession>,
     next_skill_id: u64,
     next_session_id: u64,
+    next_growth_event_id: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,6 +132,7 @@ pub struct StudyRpgSnapshot {
     pub player: Player,
     pub skills: Vec<Skill>,
     pub sessions: Vec<StudySession>,
+    pub growth_events: Vec<GrowthEvent>,
     pub daily_quests: Vec<Quest>,
     pub daily_completion_bonus_claimed: bool,
     pub active_session: Option<ActiveStudySession>,
@@ -125,27 +144,32 @@ impl StudyRpg {
             player: Player::new(player_name, class),
             skills: Vec::new(),
             sessions: Vec::new(),
+            growth_events: Vec::new(),
             daily_quests: default_daily_quests(),
             daily_completion_bonus_claimed: false,
             active_session: None,
             next_skill_id: 1,
             next_session_id: 1,
+            next_growth_event_id: 1,
         }
     }
 
     pub fn from_snapshot(snapshot: StudyRpgSnapshot) -> Self {
         let next_skill_id = next_id(snapshot.skills.iter().map(|skill| skill.id));
         let next_session_id = next_id(snapshot.sessions.iter().map(|session| session.id));
+        let next_growth_event_id = next_id(snapshot.growth_events.iter().map(|event| event.id));
 
         Self {
             player: snapshot.player,
             skills: snapshot.skills,
             sessions: snapshot.sessions,
+            growth_events: snapshot.growth_events,
             daily_quests: snapshot.daily_quests,
             daily_completion_bonus_claimed: snapshot.daily_completion_bonus_claimed,
             active_session: snapshot.active_session,
             next_skill_id,
             next_session_id,
+            next_growth_event_id,
         }
     }
 
@@ -154,6 +178,7 @@ impl StudyRpg {
             player: self.player.clone(),
             skills: self.skills.clone(),
             sessions: self.sessions.clone(),
+            growth_events: self.growth_events.clone(),
             daily_quests: self.daily_quests.clone(),
             daily_completion_bonus_claimed: self.daily_completion_bonus_claimed,
             active_session: self.active_session.clone(),
@@ -170,6 +195,10 @@ impl StudyRpg {
 
     pub fn sessions(&self) -> &[StudySession] {
         &self.sessions
+    }
+
+    pub fn growth_events(&self) -> &[GrowthEvent] {
+        &self.growth_events
     }
 
     pub fn daily_quests(&self) -> &[Quest] {
@@ -201,6 +230,20 @@ impl StudyRpg {
         self.next_skill_id += 1;
         self.skills.push(Skill::new(id, name, parent_id));
         id
+    }
+
+    pub fn ensure_root_skill(&mut self, name: impl Into<String>) -> u64 {
+        let name = name.into();
+        let name = name.trim();
+        if let Some(skill) = self
+            .skills
+            .iter()
+            .find(|skill| skill.parent_id.is_none() && skill.name.eq_ignore_ascii_case(name))
+        {
+            return skill.id;
+        }
+
+        self.add_skill(name, None)
     }
 
     pub fn start_study_session(
@@ -283,11 +326,22 @@ impl StudyRpg {
         self.next_session_id += 1;
 
         self.sessions.push(session.clone());
-        if let Some(skill_id) = session.skill_id
+        let skill_growth = if let Some(skill_id) = session.skill_id
             && let Some(skill) = self.skills.iter_mut().find(|skill| skill.id == skill_id)
         {
-            skill.grant_xp(earned_xp);
-        }
+            let before = skill.level_progress();
+            let after = skill.grant_xp(earned_xp);
+            (earned_xp > 0).then(|| GrowthEventKind::SkillGrowth {
+                skill_id,
+                skill_name: skill.name.clone(),
+                gained_xp: earned_xp,
+                level_before: before.level,
+                level_after: after.level,
+                total_xp_after: after.total_xp,
+            })
+        } else {
+            None
+        };
 
         let completed_quests = evaluate_quests(&mut self.daily_quests, &self.sessions);
         let quest_reward_xp = completed_quests
@@ -309,12 +363,29 @@ impl StudyRpg {
                 .saturating_add(daily_completion_bonus_xp),
         );
 
+        let mut growth_events = Vec::new();
+        if let Some(kind) = skill_growth {
+            growth_events.push(self.record_growth_event(&session, kind));
+        }
+        if player_xp.before.level != player_xp.after.level {
+            growth_events.push(self.record_growth_event(
+                &session,
+                GrowthEventKind::PlayerLevelChange {
+                    gained_xp: player_xp.gained_xp,
+                    level_before: player_xp.before.level,
+                    level_after: player_xp.after.level,
+                    total_xp_after: player_xp.after.total_xp,
+                },
+            ));
+        }
+
         StudySessionResult {
             session,
             player_xp,
             completed_quests,
             daily_completion_bonus_xp,
             quest_reward_xp,
+            growth_events,
         }
     }
 
@@ -344,9 +415,11 @@ impl StudyRpg {
                 .map(|now| self.study_minutes_for_day(now))
                 .unwrap_or(statistics.total_minutes),
             total_sessions: statistics.total_sessions,
+            skills: self.dashboard_skills(),
             quest_progress,
             daily_quest_completion,
             recent_sessions: self.recent_sessions(5),
+            growth_history: self.recent_growth_history(12),
             active_session: self.dashboard_active_session(current_epoch_seconds),
         }
     }
@@ -380,6 +453,25 @@ impl StudyRpg {
             .collect()
     }
 
+    fn dashboard_skills(&self) -> Vec<DashboardSkill> {
+        self.skills
+            .iter()
+            .map(|skill| {
+                let progress = skill.level_progress();
+                DashboardSkill {
+                    id: skill.id,
+                    name: skill.name.clone(),
+                    level: progress.level,
+                    total_xp: progress.total_xp,
+                    xp_into_level: progress.xp_into_level,
+                    xp_for_next_level: progress.xp_for_next_level,
+                    xp_progress_percent: xp_progress_percent(progress),
+                    mastery_percent: skill.mastery_percent(),
+                }
+            })
+            .collect()
+    }
+
     fn recent_sessions(&self, limit: usize) -> Vec<DashboardSession> {
         self.sessions
             .iter()
@@ -393,6 +485,32 @@ impl StudyRpg {
                 earned_xp: session.earned_xp,
             })
             .collect()
+    }
+
+    fn recent_growth_history(&self, limit: usize) -> Vec<GrowthEvent> {
+        self.growth_events
+            .iter()
+            .rev()
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+
+    fn record_growth_event(
+        &mut self,
+        session: &StudySession,
+        kind: GrowthEventKind,
+    ) -> GrowthEvent {
+        let event = GrowthEvent {
+            id: self.next_growth_event_id,
+            session_id: session.id,
+            topic: session.topic.clone(),
+            occurred_at_epoch_seconds: session.ended_at_epoch_seconds,
+            kind,
+        };
+        self.next_growth_event_id += 1;
+        self.growth_events.push(event.clone());
+        event
     }
 
     fn dashboard_active_session(
@@ -561,6 +679,7 @@ mod tests {
                 started_at_epoch_seconds: None,
                 ended_at_epoch_seconds: None,
             }],
+            growth_events: vec![],
             daily_quests: default_daily_quests(),
             daily_completion_bonus_claimed: false,
             active_session: None,

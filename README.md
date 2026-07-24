@@ -23,7 +23,9 @@ Study RPG 是一个 Local First 的学习成长软件。目标不是做另一个
 - 生成 Dashboard 聚合数据，包括任务进度、最近学习记录和进行中的学习估算
 - 使用 SQLite 保存和恢复本地状态，包括进行中的学习 Session
 - 提供贴在屏幕右侧的 Companion，可收起/展开、上下拖动、开始/结束学习计时并查看即时成长反馈
-- 学习结算会分别展示专注 XP、新完成的 Daily Quest、任务奖励、全清奖励与等级变化
+- 学习 Session 可选关联一个成长技能；同名根技能会忽略 ASCII 大小写复用
+- 学习结算会分别展示专注 XP、技能 XP、新完成的 Daily Quest、任务奖励、全清奖励与等级变化
+- 持久化记录玩家等级变化和技能成长事件，并在 Dashboard 展示当前技能进度与最近成长历史
 - 提供独立 Dashboard 窗口，展示任务、最近记录和完整 Statistics
 - 关闭窗口后驻留系统托盘；学习计时与窗口偏好均可在重启后恢复
 - 提供 Statistics 页面，展示周期汇总、七日学习时长/XP 趋势和连续学习天数
@@ -40,6 +42,9 @@ npm run tauri dev
 首次运行会在系统应用数据目录创建 `study_rpg.sqlite3`。如果开发目录中已有
 `data/study_rpg.sqlite3`，首次启动新版桌面端时会自动复制过去。之后再次启动会恢复玩家进度、
 未结束的学习计时器，以及 Companion 的收起状态和纵向位置。
+
+成长历史使用升级后新产生的 Session 事件开始记录。旧数据库中的 Session 缺少完整的任务奖励和
+全清奖励事实，应用不会尝试生成可能不准确的历史事件。
 
 运行测试：
 
@@ -63,6 +68,7 @@ npm run check
 src/
 ├── companion.rs   # Companion 贴边尺寸与位置规则
 ├── desktop.rs     # 桌面控制器，连接 UI、核心循环和本地持久化
+├── growth.rs      # 不可变的等级变化与技能成长事件
 ├── player.rs      # 玩家、职业、称号和 XP 授予
 ├── quest.rs       # 每日任务和任务进度
 ├── session.rs     # 学习 Session 和基础 XP 计算
@@ -82,6 +88,11 @@ src-ui/
 ├── DailyQuestStatus.svelte  # Daily Quest 总进度与全清奖励状态
 ├── styles.css               # 桌面视觉样式
 └── types.ts                 # Rust IPC 数据类型
+
+CONTEXT.md                   # 核心领域词汇
+docs/
+├── PROGRAM_DESIGN.md        # V1 程序设计
+└── adr/                     # 架构决策记录
 ```
 
 ## 设计原则
@@ -117,8 +128,9 @@ src-ui/
 - 右侧贴边 Companion 的收起/展开、拖动定位和位置恢复
 - 托盘驻留与按需打开 Dashboard
 - Statistics 汇总与七日学习时长柱状图、XP 折线图
+- 等级变化与技能成长历史、当前技能进度和结算即时反馈
 - 基础测试
 
 下一步：
 
-- 记录并展示等级变化与技能成长历史
+- 根据 V1 使用反馈继续打磨技能组织与成长记录体验

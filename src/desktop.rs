@@ -110,19 +110,37 @@ impl DesktopController {
         topic: &str,
         started_at_epoch_seconds: u64,
     ) -> Result<(), DesktopError> {
+        self.start_session_with_skill(topic, None, started_at_epoch_seconds)
+    }
+
+    pub fn start_session_with_skill(
+        &mut self,
+        topic: &str,
+        skill_name: Option<&str>,
+        started_at_epoch_seconds: u64,
+    ) -> Result<(), DesktopError> {
         let topic = topic.trim();
         if topic.is_empty() {
             return Err(DesktopError::EmptyTopic);
         }
+        let skill_name = skill_name.map(str::trim).filter(|name| !name.is_empty());
 
         let previous_app = self.app()?.clone();
-        self.app_mut()?.start_study_session(
-            StudySessionStartInput {
-                topic: topic.to_string(),
-                skill_id: None,
-            },
-            started_at_epoch_seconds,
-        )?;
+        let start_result = {
+            let app = self.app_mut()?;
+            let skill_id = skill_name.map(|name| app.ensure_root_skill(name));
+            app.start_study_session(
+                StudySessionStartInput {
+                    topic: topic.to_string(),
+                    skill_id,
+                },
+                started_at_epoch_seconds,
+            )
+        };
+        if let Err(error) = start_result {
+            self.app = Some(previous_app);
+            return Err(error.into());
+        }
         self.save_or_restore(previous_app)
     }
 

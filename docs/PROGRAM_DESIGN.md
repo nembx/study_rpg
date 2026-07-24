@@ -17,6 +17,7 @@
 - Dashboard 所需聚合数据
 - Daily Quest 进度
 - Statistics 基础汇总
+- 等级变化与技能成长历史
 
 暂缓实现：
 
@@ -32,6 +33,7 @@
 ```rust
 StudyRpg::new(player_name, class)
 StudyRpg::add_skill(name, parent)
+StudyRpg::ensure_root_skill(name)
 StudyRpg::start_study_session(input, started_at)
 StudyRpg::finish_active_study_session(ended_at)
 StudyRpg::complete_study_session(input)
@@ -49,6 +51,7 @@ StudyRpg::statistics_at(now)
 - 按学习时长计算 XP
 - 更新玩家等级和称号
 - 更新技能 XP
+- 记录不可变的等级变化与技能成长事件
 - 推进每日任务
 - 当天任务全部完成时自动发放一次 150 XP 全清奖励
 - 记录 Session
@@ -68,6 +71,8 @@ Dashboard 当前聚合：
 - 每日任务日期、单项进度、完成数、剩余数和总体进度百分比
 - 每日任务是否全清以及全清奖励 XP
 - 最近学习记录
+- 当前 Study Skill 的等级与 XP 进度
+- 最近 12 条 Growth Event
 - 进行中的学习 Session、已计时分钟和预计 XP
 
 Statistics 当前聚合：
@@ -84,6 +89,7 @@ Statistics 当前聚合：
 src/
 ├── companion.rs
 ├── desktop.rs
+├── growth.rs
 ├── lib.rs
 ├── player.rs
 ├── quest.rs
@@ -108,7 +114,7 @@ V1 核心模块保持纯 Rust，便于测试。当前外层适配器：
 - `desktop`: 在 UI 与核心循环之间协调命令，并在状态变化后保存快照
 - `storage`: 通过 SQLite 读写完整的 `StudyRpg` 状态
 
-Companion 以正向计时和即时成长反馈为主要职责，提供收起卡片与展开面板两种形态；展开状态和纵向位置作为 UI 偏好保存在 SQLite。Dashboard 直接消费 `StudyRpg::statistics_at(now)`，展示今日、本周、本月、累计汇总、最近七日学习时长和连续学习天数。七日桶的日历日期由核心统计模块提供，UI 不重新计算日期分组或日历边界。
+Companion 以正向计时和即时成长反馈为主要职责，提供收起卡片与展开面板两种形态；展开状态和纵向位置作为 UI 偏好保存在 SQLite。开始 Session 时填写的“成长技能”只是把本次学习归属到一个 Study Skill；新名称会创建根技能，同名名称会复用现有技能。这不是技能树编辑器，父子技能组织仍在 V1 暂缓范围内。Dashboard 直接消费 `StudyRpg::statistics_at(now)` 和 Dashboard 聚合数据，展示当前技能、最近成长、今日、本周、本月、累计汇总、最近七日学习时长和连续学习天数。七日桶的日历日期由核心统计模块提供，UI 不重新计算日期分组、等级或成长规则。
 
 未来可以替换视觉框架或拆分更多页面，但核心接口和 SQLite 快照边界不随 UI 技术变化。
 
@@ -127,11 +133,12 @@ SqliteStore::load()
 
 每日任务全清奖励会自动结算，并在 snapshot 中记录当天是否已经发放。刷新到新日期时该状态重置；SQLite 恢复后则继续保持，避免同一天重复领取奖励。
 `StudySessionResult` 分别返回新完成的任务、单项任务奖励 `quest_reward_xp` 和全清奖励
-`daily_completion_bonus_xp`。Tauri IPC 保留每个新完成任务的稳定类型、目标与奖励 XP，Companion 在学习结算中
-分别展示专注 XP、任务奖励、全清奖励和等级变化。Companion 与 Dashboard 的 Daily Quest 面板还会
+`daily_completion_bonus_xp`，以及本次结算产生的 `growth_events`。Tauri IPC 保留每个新完成任务的稳定类型、目标与奖励 XP，并把同一批 Growth Event 交给 Companion；结算卡分别展示专注 XP、技能 XP、任务奖励、全清奖励和等级变化。Companion 与 Dashboard 的 Daily Quest 面板还会
 持续显示总体进度，以及 `+150 XP` 全清奖励的待领取或已达成状态。
 单项任务进度百分比和总体进度百分比均由核心 Dashboard 聚合；总体百分比取各任务归一化进度的
 平均值。UI 只渲染这些值，不重新定义任务进度规则。
+
+Growth Event 是 Session 完成时记录的不可变事实：技能实际获得 XP 时记录 `Skill Growth`，玩家跨过一个或多个等级阈值时记录 `Player Level Change`。事件通过 `StudyRpg::snapshot()` / `from_snapshot()` 进入 SQLite，恢复后继续使用递增事件 ID。旧数据库没有可靠的任务奖励、全清奖励和历史等级变化事实，因此不会从已有 Session 反推事件；成长历史从升级后完成的新 Session 开始。
 
 ## 数据规则
 

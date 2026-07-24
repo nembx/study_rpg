@@ -22,6 +22,10 @@ impl Skill {
 
     pub fn grant_xp(&mut self, amount: u32) -> LevelProgress {
         self.total_xp = self.total_xp.saturating_add(amount);
+        self.level_progress()
+    }
+
+    pub fn level_progress(&self) -> LevelProgress {
         progress_from_total_xp(self.total_xp)
     }
 

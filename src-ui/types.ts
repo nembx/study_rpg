@@ -44,6 +44,45 @@ export interface ActiveSessionView {
   estimatedXp: number;
 }
 
+export interface SkillProgressView {
+  id: number;
+  name: string;
+  level: number;
+  totalXp: number;
+  xpIntoLevel: number;
+  xpForNextLevel: number;
+  xpProgressPercent: number;
+  masteryPercent: number;
+}
+
+export interface PlayerLevelChangeDetailsView {
+  kind: "playerLevelChange";
+  gainedXp: number;
+  levelBefore: number;
+  levelAfter: number;
+  totalXpAfter: number;
+}
+
+export interface SkillGrowthDetailsView {
+  kind: "skillGrowth";
+  skillId: number;
+  skillName: string;
+  gainedXp: number;
+  levelBefore: number;
+  levelAfter: number;
+  totalXpAfter: number;
+}
+
+export type GrowthEventDetailsView = PlayerLevelChangeDetailsView | SkillGrowthDetailsView;
+
+export interface GrowthEventView {
+  id: number;
+  sessionId: number;
+  topic: string;
+  occurredAtEpochSeconds: number | null;
+  details: GrowthEventDetailsView;
+}
+
 export interface DashboardView {
   playerName: string;
   playerClass: CharacterClassId;
@@ -56,9 +95,11 @@ export interface DashboardView {
   xpProgressPercent: number;
   todayMinutes: number;
   totalSessions: number;
+  skills: SkillProgressView[];
   quests: QuestView[];
   dailyQuestStatus: DailyQuestStatusView;
   recentSessions: SessionView[];
+  growthHistory: GrowthEventView[];
   activeSession: ActiveSessionView | null;
 }
 
@@ -84,6 +125,7 @@ export interface SessionResultView {
   completedQuests: CompletedQuestView[];
   levelBefore: number;
   levelAfter: number;
+  growthEvents: GrowthEventView[];
 }
 
 export interface StatisticsPeriodView {

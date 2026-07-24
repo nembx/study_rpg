@@ -1,5 +1,6 @@
 use study_rpg::{
-    CharacterClass, CompanionMode, CompanionPreferences, DesktopController, SqliteStore,
+    CharacterClass, CompanionMode, CompanionPreferences, DesktopController, GrowthEventKind,
+    SqliteStore,
 };
 
 #[cfg(unix)]
@@ -17,6 +18,53 @@ fn desktop_controller_starts_a_study_session_from_the_topic_input() {
     let active = dashboard.active_session.unwrap();
     assert_eq!(active.topic, "Rust ownership");
     assert_eq!(active.elapsed_minutes, 1);
+}
+
+#[test]
+fn desktop_controller_records_growth_for_the_selected_skill_name() {
+    let store = SqliteStore::in_memory().unwrap();
+    let mut desktop =
+        DesktopController::load_or_create(store, "Nembx", CharacterClass::Scholar, 1_000).unwrap();
+
+    desktop
+        .start_session_with_skill("Rust ownership", Some("  Rust  "), 1_000)
+        .unwrap();
+
+    let active = desktop.dashboard_at(1_060).unwrap().active_session.unwrap();
+    assert_eq!(active.skill_name.as_deref(), Some("Rust"));
+
+    desktop.finish_session(1_000 + 30 * 60).unwrap();
+    let history = desktop
+        .dashboard_at(1_000 + 30 * 60)
+        .unwrap()
+        .growth_history;
+    assert!(history.iter().any(|event| matches!(
+        &event.kind,
+        GrowthEventKind::SkillGrowth { skill_name, .. } if skill_name == "Rust"
+    )));
+}
+
+#[test]
+fn desktop_controller_reuses_an_existing_skill_name_ignoring_ascii_case() {
+    let store = SqliteStore::in_memory().unwrap();
+    let mut desktop =
+        DesktopController::load_or_create(store, "Nembx", CharacterClass::Scholar, 1_000).unwrap();
+
+    desktop
+        .start_session_with_skill("Rust syntax", Some("Rust"), 1_000)
+        .unwrap();
+    desktop.finish_session(1_060).unwrap();
+    desktop
+        .start_session_with_skill("Rust ownership", Some("  rUsT  "), 2_000)
+        .unwrap();
+
+    let dashboard = desktop.dashboard_at(2_000).unwrap();
+    assert_eq!(dashboard.skills.len(), 1);
+    assert_eq!(dashboard.skills[0].name, "Rust");
+    assert_eq!(
+        dashboard.active_session.unwrap().skill_name.as_deref(),
+        Some("Rust")
+    );
 }
 
 #[test]

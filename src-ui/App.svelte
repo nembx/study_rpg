@@ -20,6 +20,7 @@
   let statistics: StatisticsView | null = null;
   let mode: CompanionMode = "compact";
   let topic = "";
+  let skillName = "";
   let errorMessage = "";
   let feedback: SessionResultView | null = null;
   let busy = false;
@@ -120,7 +121,7 @@
     }
   }
 
-  async function beginSession(chosenTopic = topic) {
+  async function beginSession(chosenTopic = topic, chosenSkill = skillName) {
     const trimmed = chosenTopic.trim();
     if (!trimmed) {
       await setMode("expanded");
@@ -130,7 +131,8 @@
 
     busy = true;
     try {
-      await invoke("start_session", { topic: trimmed });
+      const trimmedSkill = chosenSkill.trim();
+      await invoke("start_session", { topic: trimmed, skillName: trimmedSkill || null });
       topic = "";
       feedback = null;
       errorMessage = "";
@@ -245,6 +247,17 @@
       })
       .join(" ");
   }
+
+  function growthTime(epochSeconds: number | null) {
+    if (epochSeconds === null) return "手动结算";
+    return new Intl.DateTimeFormat("zh-CN", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(new Date(epochSeconds * 1000));
+  }
 </script>
 
 {#if !startupState}
@@ -324,7 +337,7 @@
         <div><small>LV</small><strong>{dashboard.level}</strong></div>
       </div>
       <div class="hero-copy">
-        <div class="eyebrow">{localizedTitle(dashboard.title)}</div>
+        <div class="eyebrow">{dashboard.activeSession?.skillName ? `SKILL · ${dashboard.activeSession.skillName}` : localizedTitle(dashboard.title)}</div>
         {#if dashboard.activeSession}
           <strong class="topic-line">{dashboard.activeSession.topic}</strong>
           <span class="timer">{timerText(activeSeconds)}</span>
@@ -354,6 +367,21 @@
               />
               <button class="primary-button" disabled={busy} on:click={() => beginSession()}>开始学习</button>
             </div>
+            <div class="skill-field">
+              <div><label for="skill-name">成长技能</label><span>可选 · 新名称会自动创建</span></div>
+              <input
+                id="skill-name"
+                list="skill-options"
+                bind:value={skillName}
+                placeholder="例如：Rust"
+                on:keydown={(event) => event.key === "Enter" && beginSession()}
+              />
+              <datalist id="skill-options">
+                {#each dashboard.skills as skill}
+                  <option value={skill.name}></option>
+                {/each}
+              </datalist>
+            </div>
             {#if recentTopics.length > 0}
               <div class="quick-topics">
                 {#each recentTopics as recentTopic}
@@ -382,6 +410,24 @@
             <div class="reward-breakdown">
               <div><span>专注奖励</span><strong>+{feedback.studyXp} XP</strong></div>
             </div>
+
+            {#each feedback.growthEvents as event}
+              {#if event.details.kind === "skillGrowth"}
+                <div class="skill-growth-feedback">
+                  <div>
+                    <span>SKILL GROWTH</span>
+                    <strong>{event.details.skillName} · +{event.details.gainedXp} XP</strong>
+                    <small>
+                      本次专注 XP 同步计入技能
+                      {#if event.details.levelAfter > event.details.levelBefore}
+                        · LV {event.details.levelBefore} → LV {event.details.levelAfter}
+                      {/if}
+                    </small>
+                  </div>
+                  <em>✦</em>
+                </div>
+              {/if}
+            {/each}
 
             {#if feedback.completedQuests.length > 0}
               <div class="quest-completion-feed">
@@ -457,6 +503,7 @@
       <nav>
         <a class="active" href="#overview">◈ 总览</a>
         <a href="#quests">◇ 每日任务</a>
+        <a href="#growth">✦ 成长记录</a>
         <a href="#statistics">⌁ 学习统计</a>
       </nav>
       <div class="sidebar-player">
@@ -518,6 +565,53 @@
             {/if}
           </div>
         </article>
+      </section>
+
+      <section id="growth" class="growth-section">
+        <div class="section-heading"><div><span>GROWTH LOG</span><h2>成长记录</h2></div><p>等级变化与技能积累会在 Session 结算后留下记录。</p></div>
+        <div class="growth-columns">
+          <article class="dashboard-panel skill-progress-panel">
+            <div class="panel-heading"><div><span>STUDY SKILLS</span><h2>当前技能</h2></div><strong>{dashboard.skills.length}</strong></div>
+            {#if dashboard.skills.length === 0}
+              <p class="empty-state">开始学习时填写“成长技能”，这里会显示它的等级与经验。</p>
+            {:else}
+              <div class="skill-progress-list">
+                {#each dashboard.skills as skill}
+                  <div class="skill-progress-row">
+                    <div class="skill-progress-heading"><div><strong>{skill.name}</strong><span>LV {skill.level}</span></div><em>{skill.totalXp} XP</em></div>
+                    <div class="progress-track"><div style={`width: ${skill.xpProgressPercent}%`}></div></div>
+                    <div class="skill-progress-meta"><span>{skill.xpIntoLevel} / {skill.xpForNextLevel} XP</span><span>掌握度 {skill.masteryPercent}%</span></div>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </article>
+
+          <article class="dashboard-panel growth-history-panel">
+            <div class="panel-heading"><div><span>RECENT GROWTH</span><h2>最近成长</h2></div><strong>{dashboard.growthHistory.length}</strong></div>
+            {#if dashboard.growthHistory.length === 0}
+              <p class="empty-state">技能获得 XP 或角色升级后，成长事件会出现在这里。</p>
+            {:else}
+              <div class="growth-timeline">
+                {#each dashboard.growthHistory as event}
+                  <article class:level-event={event.details.kind === "playerLevelChange"} class="growth-event">
+                    <div class="growth-event-icon">{event.details.kind === "playerLevelChange" ? "↑" : "✦"}</div>
+                    <div class="growth-event-copy">
+                      <div class="growth-event-meta"><span>{event.details.kind === "playerLevelChange" ? "LEVEL CHANGE" : "SKILL GROWTH"}</span><time>{growthTime(event.occurredAtEpochSeconds)}</time></div>
+                      {#if event.details.kind === "playerLevelChange"}
+                        <strong>角色升级 · LV {event.details.levelBefore} → LV {event.details.levelAfter}</strong>
+                        <p>{event.topic} · +{event.details.gainedXp} XP · 累计 {event.details.totalXpAfter} XP</p>
+                      {:else}
+                        <strong>{event.details.skillName} · +{event.details.gainedXp} XP</strong>
+                        <p>{event.topic} · {event.details.levelAfter > event.details.levelBefore ? `技能升级 LV ${event.details.levelBefore} → LV ${event.details.levelAfter}` : `累计 ${event.details.totalXpAfter} XP`}</p>
+                      {/if}
+                    </div>
+                  </article>
+                {/each}
+              </div>
+            {/if}
+          </article>
+        </div>
       </section>
 
       {#if statistics}

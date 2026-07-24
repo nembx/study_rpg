@@ -1,8 +1,10 @@
 use std::path::Path;
 
+use rusqlite::types::Type;
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::desktop::{CompanionMode, CompanionPreferences};
+use crate::growth::{GrowthEvent, GrowthEventKind};
 use crate::player::{CharacterClass, Mood, Player};
 use crate::quest::{Quest, QuestTarget};
 use crate::session::{ActiveStudySession, StudySession};
@@ -37,6 +39,7 @@ impl SqliteStore {
         tx.execute("DELETE FROM active_study_session", [])?;
         tx.execute("DELETE FROM daily_quest_state", [])?;
         tx.execute("DELETE FROM quests", [])?;
+        tx.execute("DELETE FROM growth_events", [])?;
         tx.execute("DELETE FROM study_sessions", [])?;
         tx.execute("DELETE FROM skills", [])?;
         tx.execute("DELETE FROM player", [])?;
@@ -82,6 +85,29 @@ impl SqliteStore {
                     session.earned_xp,
                     session.started_at_epoch_seconds,
                     session.ended_at_epoch_seconds,
+                ],
+            )?;
+        }
+
+        for event in snapshot.growth_events {
+            let fields = growth_event_storage_fields(&event.kind);
+            tx.execute(
+                "INSERT INTO growth_events
+                 (id, session_id, topic, occurred_at_epoch_seconds, kind, skill_id,
+                  skill_name, gained_xp, level_before, level_after, total_xp_after)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![
+                    event.id,
+                    event.session_id,
+                    event.topic,
+                    event.occurred_at_epoch_seconds,
+                    fields.kind,
+                    fields.skill_id,
+                    fields.skill_name,
+                    fields.gained_xp,
+                    fields.level_before,
+                    fields.level_after,
+                    fields.total_xp_after,
                 ],
             )?;
         }
@@ -151,6 +177,7 @@ impl SqliteStore {
 
         let skills = self.load_skills()?;
         let sessions = self.load_sessions()?;
+        let growth_events = self.load_growth_events()?;
         let daily_quests = self.load_quests()?;
         let daily_completion_bonus_claimed = self.load_daily_completion_bonus_claimed()?;
         let active_session = self.load_active_session()?;
@@ -159,6 +186,7 @@ impl SqliteStore {
             player,
             skills,
             sessions,
+            growth_events,
             daily_quests,
             daily_completion_bonus_claimed,
             active_session,
@@ -228,6 +256,20 @@ impl SqliteStore {
                 earned_xp INTEGER NOT NULL,
                 started_at_epoch_seconds INTEGER,
                 ended_at_epoch_seconds INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS growth_events (
+                id INTEGER PRIMARY KEY,
+                session_id INTEGER NOT NULL,
+                topic TEXT NOT NULL,
+                occurred_at_epoch_seconds INTEGER,
+                kind TEXT NOT NULL,
+                skill_id INTEGER,
+                skill_name TEXT,
+                gained_xp INTEGER NOT NULL,
+                level_before INTEGER NOT NULL,
+                level_after INTEGER NOT NULL,
+                total_xp_after INTEGER NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS quests (
@@ -322,6 +364,58 @@ impl SqliteStore {
                 earned_xp: row.get(4)?,
                 started_at_epoch_seconds: row.get(5)?,
                 ended_at_epoch_seconds: row.get(6)?,
+            })
+        })?
+        .collect()
+    }
+
+    fn load_growth_events(&self) -> rusqlite::Result<Vec<GrowthEvent>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, session_id, topic, occurred_at_epoch_seconds, kind, skill_id,
+                    skill_name, gained_xp, level_before, level_after, total_xp_after
+             FROM growth_events
+             ORDER BY id",
+        )?;
+
+        stmt.query_map([], |row| {
+            let kind = row.get::<_, String>(4)?;
+            let gained_xp = row.get(7)?;
+            let level_before = row.get(8)?;
+            let level_after = row.get(9)?;
+            let total_xp_after = row.get(10)?;
+            let kind = match kind.as_str() {
+                "skill_growth" => GrowthEventKind::SkillGrowth {
+                    skill_id: row.get(5)?,
+                    skill_name: row.get(6)?,
+                    gained_xp,
+                    level_before,
+                    level_after,
+                    total_xp_after,
+                },
+                "player_level_change" => GrowthEventKind::PlayerLevelChange {
+                    gained_xp,
+                    level_before,
+                    level_after,
+                    total_xp_after,
+                },
+                _ => {
+                    return Err(rusqlite::Error::FromSqlConversionFailure(
+                        4,
+                        Type::Text,
+                        Box::new(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("unknown growth event kind: {kind}"),
+                        )),
+                    ));
+                }
+            };
+
+            Ok(GrowthEvent {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                topic: row.get(2)?,
+                occurred_at_epoch_seconds: row.get(3)?,
+                kind,
             })
         })?
         .collect()
@@ -431,6 +525,51 @@ fn quest_target_from_parts(kind: &str, value: u32) -> QuestTarget {
     }
 }
 
+struct GrowthEventStorageFields<'a> {
+    kind: &'static str,
+    skill_id: Option<u64>,
+    skill_name: Option<&'a str>,
+    gained_xp: u32,
+    level_before: u32,
+    level_after: u32,
+    total_xp_after: u32,
+}
+
+fn growth_event_storage_fields(kind: &GrowthEventKind) -> GrowthEventStorageFields<'_> {
+    match kind {
+        GrowthEventKind::PlayerLevelChange {
+            gained_xp,
+            level_before,
+            level_after,
+            total_xp_after,
+        } => GrowthEventStorageFields {
+            kind: "player_level_change",
+            skill_id: None,
+            skill_name: None,
+            gained_xp: *gained_xp,
+            level_before: *level_before,
+            level_after: *level_after,
+            total_xp_after: *total_xp_after,
+        },
+        GrowthEventKind::SkillGrowth {
+            skill_id,
+            skill_name,
+            gained_xp,
+            level_before,
+            level_after,
+            total_xp_after,
+        } => GrowthEventStorageFields {
+            kind: "skill_growth",
+            skill_id: Some(*skill_id),
+            skill_name: Some(skill_name),
+            gained_xp: *gained_xp,
+            level_before: *level_before,
+            level_after: *level_after,
+            total_xp_after: *total_xp_after,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -472,6 +611,47 @@ mod tests {
             duration_minutes: 10,
         });
         assert_eq!(result.session.id, 2);
+    }
+
+    #[test]
+    fn rejects_unknown_growth_event_kinds_instead_of_rewriting_history() {
+        let mut store = SqliteStore::in_memory().unwrap();
+        let mut app = StudyRpg::new("Nembx", CharacterClass::Scholar);
+        let rust = app.add_skill("Rust", None);
+        app.complete_study_session(StudySessionInput {
+            topic: "Rust ownership".to_string(),
+            skill_id: Some(rust),
+            duration_minutes: 30,
+        });
+        store.save(&app).unwrap();
+        store
+            .conn
+            .execute(
+                "UPDATE growth_events SET kind = 'future_growth' WHERE id = 1",
+                [],
+            )
+            .unwrap();
+
+        assert!(store.load().is_err());
+    }
+
+    #[test]
+    fn rejects_skill_growth_without_its_skill_identity() {
+        let mut store = SqliteStore::in_memory().unwrap();
+        let mut app = StudyRpg::new("Nembx", CharacterClass::Scholar);
+        let rust = app.add_skill("Rust", None);
+        app.complete_study_session(StudySessionInput {
+            topic: "Rust ownership".to_string(),
+            skill_id: Some(rust),
+            duration_minutes: 30,
+        });
+        store.save(&app).unwrap();
+        store
+            .conn
+            .execute("UPDATE growth_events SET skill_id = NULL WHERE id = 1", [])
+            .unwrap();
+
+        assert!(store.load().is_err());
     }
 
     #[test]

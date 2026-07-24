@@ -91,6 +91,12 @@ button { cursor: pointer; }
 .topic-input-row { display: flex; gap: 7px; }
 .topic-input-row input { min-width: 0; flex: 1; border: 1px solid rgba(170,153,220,.2); border-radius: 10px; padding: 10px 11px; outline: 0; color: white; background: rgba(5,8,17,.62); }
 .topic-input-row input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(159,122,234,.12); }
+.skill-field { margin-top: 10px; }
+.skill-field > div { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.skill-field label { margin: 0; }
+.skill-field span { color: var(--muted); font-size: 8px; }
+.skill-field input { width: 100%; border: 1px solid rgba(170,153,220,.2); border-radius: 10px; padding: 9px 11px; outline: 0; color: white; background: rgba(5,8,17,.45); }
+.skill-field input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(103,216,210,.1); }
 .quick-topics { display: flex; gap: 6px; margin-top: 8px; overflow-x: auto; }
 .quick-topics button { flex: 0 0 auto; max-width: 115px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--line); border-radius: 999px; padding: 5px 8px; color: var(--muted); background: rgba(255,255,255,.03); font-size: 9px; }
 .quick-topics button:hover { color: white; border-color: rgba(159,122,234,.5); }
@@ -109,6 +115,12 @@ button { cursor: pointer; }
 .reward-breakdown > div { padding: 8px 9px; border: 1px solid rgba(255,255,255,.06); border-radius: 10px; background: rgba(4,8,17,.32); }
 .reward-breakdown span { display: block; color: var(--muted); font-size: 8px; }
 .reward-breakdown strong { display: block; margin-top: 3px; color: #e8e4f7; font-size: 10px; }
+.skill-growth-feedback { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; padding: 9px 10px; border: 1px solid rgba(103,216,210,.18); border-radius: 11px; background: rgba(21,66,69,.18); }
+.skill-growth-feedback > div { display: flex; min-width: 0; flex-direction: column; }
+.skill-growth-feedback span { color: var(--cyan); font-size: 7px; font-weight: 900; letter-spacing: .13em; }
+.skill-growth-feedback strong { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+.skill-growth-feedback small { margin-top: 2px; color: var(--muted); font-size: 8px; }
+.skill-growth-feedback em { color: var(--cyan); font-size: 16px; font-style: normal; }
 .quest-completion-feed { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.07); }
 .feedback-label { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
 .feedback-label span { color: var(--accent-bright); font-size: 7px; font-weight: 850; letter-spacing: .14em; }
@@ -220,6 +232,30 @@ button { cursor: pointer; }
 .session-row small { margin-top: 4px; color: var(--muted); font-size: 9px; }
 .session-row > span { color: var(--cyan); font-size: 11px; font-weight: 800; }
 .empty-state { color: var(--muted); font-size: 11px; }
+.growth-section { margin-top: 26px; scroll-margin-top: 20px; }
+.growth-section .section-heading > p { margin: 0; color: var(--muted); font-size: 10px; }
+.growth-columns { display: grid; grid-template-columns: minmax(280px, .85fr) minmax(360px, 1.15fr); gap: 14px; margin-top: 14px; }
+.skill-progress-list { display: flex; flex-direction: column; gap: 9px; margin-top: 15px; }
+.skill-progress-row { padding: 12px; border: 1px solid rgba(159,122,234,.12); border-radius: 13px; background: rgba(5,8,16,.34); }
+.skill-progress-heading { display: flex; align-items: center; justify-content: space-between; }
+.skill-progress-heading > div { display: flex; align-items: baseline; gap: 7px; }
+.skill-progress-heading strong { font-size: 11px; }
+.skill-progress-heading span { color: var(--accent-bright); font-size: 9px; font-weight: 850; }
+.skill-progress-heading em { color: var(--cyan); font-size: 10px; font-style: normal; font-weight: 800; }
+.skill-progress-meta { display: flex; justify-content: space-between; margin-top: 6px; color: var(--muted); font-size: 8px; }
+.growth-timeline { position: relative; display: flex; flex-direction: column; gap: 8px; margin-top: 15px; }
+.growth-timeline::before { content: ""; position: absolute; top: 18px; bottom: 18px; left: 17px; width: 1px; background: linear-gradient(var(--accent), rgba(103,216,210,.18)); }
+.growth-event { position: relative; z-index: 1; display: flex; gap: 11px; padding: 10px; border: 1px solid rgba(159,122,234,.11); border-radius: 13px; background: rgba(5,8,16,.4); }
+.growth-event.level-event { border-color: rgba(255,205,112,.2); background: linear-gradient(135deg, rgba(128,82,24,.16), rgba(5,8,16,.42)); }
+.growth-event-icon { display: grid; place-items: center; flex: 0 0 auto; width: 34px; height: 34px; border: 1px solid rgba(103,216,210,.25); border-radius: 11px; color: var(--cyan); background: #121a29; font-size: 13px; box-shadow: 0 0 16px rgba(103,216,210,.08); }
+.level-event .growth-event-icon { border-color: rgba(255,205,112,.32); color: #3b260b; background: #ffd47a; box-shadow: 0 0 18px rgba(255,205,112,.14); }
+.growth-event-copy { min-width: 0; flex: 1; }
+.growth-event-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.growth-event-meta span { color: var(--accent-bright); font-size: 7px; font-weight: 900; letter-spacing: .13em; }
+.level-event .growth-event-meta span { color: #ffd47a; }
+.growth-event-meta time { color: var(--muted); font-size: 8px; }
+.growth-event-copy > strong { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.growth-event-copy > p { margin: 4px 0 0; color: var(--muted); font-size: 9px; line-height: 1.45; }
 .statistics-section { margin-top: 26px; scroll-margin-top: 20px; }
 .streak-pill { padding: 8px 12px; border: 1px solid rgba(255,190,92,.22); border-radius: 999px; color: #ffd38a; background: rgba(128,79,24,.15); font-size: 10px; }
 .period-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 11px; margin-top: 14px; }
@@ -243,4 +279,5 @@ button { cursor: pointer; }
 @media (max-width: 1000px) {
   .overview-grid { grid-template-columns: 2fr repeat(3, .8fr); }
   .dashboard-content { padding-left: 25px; padding-right: 25px; }
+  .growth-columns { grid-template-columns: 1fr; }
 }

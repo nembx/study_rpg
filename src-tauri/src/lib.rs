@@ -8,8 +8,8 @@ use serde::Serialize;
 use study_rpg::{
     CalendarDate, CharacterClass, CompanionDisplay, CompanionMode, CompanionPreferences,
     CompanionWindowBounds, Dashboard, DashboardDailyQuestCompletion, DesktopController,
-    SqliteStore, StudySessionResult, StudyStatistics, StudyStatisticsReport,
-    companion_window_bounds, quest::QuestTarget,
+    GrowthEvent, GrowthEventKind, SqliteStore, StudySessionResult, StudyStatistics,
+    StudyStatisticsReport, companion_window_bounds, quest::QuestTarget,
 };
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -37,10 +37,58 @@ struct DashboardView {
     xp_progress_percent: u8,
     today_minutes: u32,
     total_sessions: u32,
+    skills: Vec<SkillProgressView>,
     quests: Vec<QuestView>,
     daily_quest_status: DailyQuestStatusView,
     recent_sessions: Vec<SessionView>,
+    growth_history: Vec<GrowthEventView>,
     active_session: Option<ActiveSessionView>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SkillProgressView {
+    id: u64,
+    name: String,
+    level: u32,
+    total_xp: u32,
+    xp_into_level: u32,
+    xp_for_next_level: u32,
+    xp_progress_percent: u8,
+    mastery_percent: u8,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrowthEventView {
+    id: u64,
+    session_id: u64,
+    topic: String,
+    occurred_at_epoch_seconds: Option<u64>,
+    details: GrowthEventDetailsView,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+enum GrowthEventDetailsView {
+    PlayerLevelChange {
+        gained_xp: u32,
+        level_before: u32,
+        level_after: u32,
+        total_xp_after: u32,
+    },
+    SkillGrowth {
+        skill_id: u64,
+        skill_name: String,
+        gained_xp: u32,
+        level_before: u32,
+        level_after: u32,
+        total_xp_after: u32,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -116,6 +164,7 @@ struct SessionResultView {
     completed_quests: Vec<CompletedQuestView>,
     level_before: u32,
     level_after: u32,
+    growth_events: Vec<GrowthEventView>,
 }
 
 #[derive(Debug, Serialize)]
@@ -226,10 +275,14 @@ fn get_companion_preferences(
 }
 
 #[tauri::command]
-fn start_session(topic: String, state: State<'_, AppState>) -> Result<(), String> {
+fn start_session(
+    topic: String,
+    skill_name: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     let mut controller = lock_controller(&state)?;
     controller
-        .start_session(&topic, current_epoch_seconds())
+        .start_session_with_skill(&topic, skill_name.as_deref(), current_epoch_seconds())
         .map_err(|error| error.to_string())
 }
 
@@ -540,6 +593,20 @@ impl From<Dashboard> for DashboardView {
             xp_progress_percent: value.xp_progress_percent,
             today_minutes: value.today_minutes,
             total_sessions: value.total_sessions,
+            skills: value
+                .skills
+                .into_iter()
+                .map(|skill| SkillProgressView {
+                    id: skill.id,
+                    name: skill.name,
+                    level: skill.level,
+                    total_xp: skill.total_xp,
+                    xp_into_level: skill.xp_into_level,
+                    xp_for_next_level: skill.xp_for_next_level,
+                    xp_progress_percent: skill.xp_progress_percent,
+                    mastery_percent: skill.mastery_percent,
+                })
+                .collect(),
             quests: value
                 .quest_progress
                 .into_iter()
@@ -569,6 +636,11 @@ impl From<Dashboard> for DashboardView {
                     earned_xp: session.earned_xp,
                 })
                 .collect(),
+            growth_history: value
+                .growth_history
+                .into_iter()
+                .map(GrowthEventView::from)
+                .collect(),
             active_session: value.active_session.map(|session| ActiveSessionView {
                 topic: session.topic,
                 skill_name: session.skill_name,
@@ -576,6 +648,47 @@ impl From<Dashboard> for DashboardView {
                 elapsed_minutes: session.elapsed_minutes,
                 estimated_xp: session.estimated_xp,
             }),
+        }
+    }
+}
+
+impl From<GrowthEvent> for GrowthEventView {
+    fn from(value: GrowthEvent) -> Self {
+        let details = match value.kind {
+            GrowthEventKind::PlayerLevelChange {
+                gained_xp,
+                level_before,
+                level_after,
+                total_xp_after,
+            } => GrowthEventDetailsView::PlayerLevelChange {
+                gained_xp,
+                level_before,
+                level_after,
+                total_xp_after,
+            },
+            GrowthEventKind::SkillGrowth {
+                skill_id,
+                skill_name,
+                gained_xp,
+                level_before,
+                level_after,
+                total_xp_after,
+            } => GrowthEventDetailsView::SkillGrowth {
+                skill_id,
+                skill_name,
+                gained_xp,
+                level_before,
+                level_after,
+                total_xp_after,
+            },
+        };
+
+        Self {
+            id: value.id,
+            session_id: value.session_id,
+            topic: value.topic,
+            occurred_at_epoch_seconds: value.occurred_at_epoch_seconds,
+            details,
         }
     }
 }
@@ -616,6 +729,11 @@ impl From<StudySessionResult> for SessionResultView {
                 .collect(),
             level_before: value.player_xp.before.level,
             level_after: value.player_xp.after.level,
+            growth_events: value
+                .growth_events
+                .into_iter()
+                .map(GrowthEventView::from)
+                .collect(),
         }
     }
 }
@@ -732,7 +850,10 @@ mod tests {
     use tauri::WebviewWindowBuilder;
     use tauri::webview::InvokeRequest;
 
-    use super::{AppState, DashboardView, SessionResultView, create_character, get_startup_state};
+    use super::{
+        AppState, DashboardView, SessionResultView, create_character, get_dashboard,
+        get_startup_state, start_session,
+    };
 
     #[test]
     fn session_result_view_keeps_each_completed_quest_reward_for_visual_feedback() {
@@ -765,6 +886,29 @@ mod tests {
     }
 
     #[test]
+    fn session_result_view_exposes_this_session_growth_events() {
+        let mut app = StudyRpg::new("Nembx", CharacterClass::Scholar);
+        let rust = app.add_skill("Rust", None);
+        let result = app.complete_study_session(StudySessionInput {
+            topic: "Rust ownership".to_string(),
+            skill_id: Some(rust),
+            duration_minutes: 30,
+        });
+
+        let view = serde_json::to_value(SessionResultView::from(result)).unwrap();
+
+        assert_eq!(view["growthEvents"][0]["details"]["kind"], "skillGrowth");
+        assert_eq!(view["growthEvents"][0]["details"]["skillName"], "Rust");
+        assert_eq!(view["growthEvents"][0]["details"]["gainedXp"], 48);
+        assert_eq!(
+            view["growthEvents"][1]["details"]["kind"],
+            "playerLevelChange"
+        );
+        assert_eq!(view["growthEvents"][1]["details"]["levelBefore"], 1);
+        assert_eq!(view["growthEvents"][1]["details"]["levelAfter"], 3);
+    }
+
+    #[test]
     fn dashboard_view_keeps_core_daily_quest_progress_for_ui_rendering() {
         let mut app = StudyRpg::new("Nembx", CharacterClass::Scholar);
         app.complete_study_session(StudySessionInput {
@@ -782,6 +926,27 @@ mod tests {
         assert_eq!(view["quests"][0]["kind"], "studyMinutes");
         assert_eq!(view["quests"][0]["progressPercent"], 50);
         assert_eq!(view["quests"][1]["progressPercent"], 100);
+    }
+
+    #[test]
+    fn dashboard_view_exposes_skill_progress_and_growth_history() {
+        let mut app = StudyRpg::new("Nembx", CharacterClass::Scholar);
+        let rust = app.add_skill("Rust", None);
+        app.complete_study_session(StudySessionInput {
+            topic: "Rust ownership".to_string(),
+            skill_id: Some(rust),
+            duration_minutes: 30,
+        });
+
+        let view = serde_json::to_value(DashboardView::from(app.dashboard())).unwrap();
+
+        assert_eq!(view["skills"][0]["name"], "Rust");
+        assert_eq!(view["skills"][0]["totalXp"], 48);
+        assert_eq!(
+            view["growthHistory"][0]["details"]["kind"],
+            "playerLevelChange"
+        );
+        assert_eq!(view["growthHistory"][1]["details"]["kind"], "skillGrowth");
     }
 
     #[test]
@@ -820,6 +985,38 @@ mod tests {
                 "playerClass": "engineer"
             })
         );
+    }
+
+    #[test]
+    fn ipc_starts_a_session_with_an_optional_skill_name() {
+        let controller = DesktopController::load_or_create(
+            SqliteStore::in_memory().unwrap(),
+            "Nembx",
+            CharacterClass::Scholar,
+            1_000,
+        )
+        .unwrap();
+        let app = tauri::test::mock_builder()
+            .manage(AppState {
+                controller: std::sync::Mutex::new(controller),
+                move_generation: std::sync::atomic::AtomicU64::new(0),
+            })
+            .invoke_handler(tauri::generate_handler![start_session, get_dashboard])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let webview = WebviewWindowBuilder::new(&app, "companion", Default::default())
+            .build()
+            .unwrap();
+
+        invoke(
+            &webview,
+            "start_session",
+            json!({ "topic": "Rust ownership", "skillName": "Rust" }),
+        );
+        let dashboard = invoke(&webview, "get_dashboard", json!({}));
+
+        assert_eq!(dashboard["activeSession"]["skillName"], "Rust");
+        assert_eq!(dashboard["skills"][0]["name"], "Rust");
     }
 
     fn invoke(
