@@ -12,6 +12,7 @@ Study RPG 是一个 Local First 的学习成长软件。目标不是做另一个
 
 - 创建玩家角色
 - 首次运行时选择角色名称与职业，并在本地持久化身份
+- 根据职业展示对应的像素角色立绘，创建角色时可实时预览
 - 开始和结束学习计时器
 - 记录学习 Session
 - 按学习时长结算 XP
@@ -85,6 +86,8 @@ src-tauri/
 
 src-ui/
 ├── App.svelte               # Companion 与 Dashboard 视图
+├── CharacterAvatar.svelte   # 按职业渲染的像素角色立绘
+├── characterClasses.ts      # 职业展示名称与说明的唯一映射
 ├── DailyQuestStatus.svelte  # Daily Quest 总进度与全清奖励状态
 ├── styles.css               # 桌面视觉样式
 └── types.ts                 # Rust IPC 数据类型
@@ -118,6 +121,7 @@ docs/
 
 - Rust 项目骨架
 - 首次运行角色创建流程
+- 五种职业的像素角色预览与状态化立绘
 - 核心成长循环
 - 学习计时器
 - 每日任务按日期刷新

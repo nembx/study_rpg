@@ -64,6 +64,10 @@ StudyRpg::statistics_at(now)
 桌面适配器不得再用默认“玩家”身份静默初始化。职业在当前版本只作为身份信息展示，不改变 XP、
 任务或统计规则。
 
+角色视觉由 `src-ui/CharacterAvatar.svelte` 根据职业 ID 渲染为本地像素立绘。立绘不作为独立领域
+实体持久化：首次创建预览、Companion、Dashboard 和结算反馈复用同一套职业映射，状态仅通过
+`idle`、`focus` 和 `celebrate` 三种展示态表达。
+
 Dashboard 当前聚合：
 
 - 玩家等级和 XP 进度百分比
@@ -101,14 +105,14 @@ src/
 └── xp.rs
 
 src-tauri/          # Tauri 桌面适配器、窗口与托盘生命周期
-src-ui/             # Svelte Companion 和 Dashboard
+src-ui/             # Svelte Companion、Dashboard 与职业化像素角色立绘
 ```
 
 ## 外层适配器
 
 V1 核心模块保持纯 Rust，便于测试。当前外层适配器：
 
-- `src-ui`: 使用 Svelte 提供右侧 Companion 与完整 Dashboard
+- `src-ui`: 使用 Svelte 提供右侧 Companion、完整 Dashboard 与职业化像素角色立绘
 - `src-tauri`: 使用 Tauri 2 暴露命令，管理无边框置顶 Companion、普通 Dashboard 和系统托盘
 - `companion`: 计算不同 DPI 和显示器工作区下的贴边窗口尺寸与位置
 - `desktop`: 在 UI 与核心循环之间协调命令，并在状态变化后保存快照

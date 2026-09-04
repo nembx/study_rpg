@@ -1,6 +1,8 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { onMount } from "svelte";
+  import CharacterAvatar from "./CharacterAvatar.svelte";
+  import { CHARACTER_CLASSES, characterClassName } from "./characterClasses";
   import DailyQuestStatus from "./DailyQuestStatus.svelte";
   import type {
     CompanionMode,
@@ -29,19 +31,6 @@
   let feedbackTimer: ReturnType<typeof setTimeout> | undefined;
   let characterName = "";
   let characterClass: CharacterClassId = "scholar";
-
-  const characterClasses: {
-    id: CharacterClassId;
-    icon: string;
-    name: string;
-    description: string;
-  }[] = [
-    { id: "scholar", icon: "⌘", name: "学者", description: "以知识积累推动稳定成长" },
-    { id: "engineer", icon: "⚙", name: "工程师", description: "把复杂目标拆成可执行系统" },
-    { id: "mage", icon: "✦", name: "法师", description: "在专注中驾驭灵感与创造力" },
-    { id: "warrior", icon: "◆", name: "战士", description: "依靠纪律完成每日训练" },
-    { id: "archer", icon: "➶", name: "游侠", description: "瞄准目标并保持轻快节奏" },
-  ];
 
   $: recentTopics = dashboard
     ? [...new Set(dashboard.recentSessions.map((session) => session.topic))].slice(0, 3)
@@ -212,7 +201,7 @@
   }
 
   function localizedClass(classId: CharacterClassId) {
-    return characterClasses.find((item) => item.id === classId)?.name ?? classId;
+    return characterClassName(classId);
   }
 
   function localizedQuest(quest: { kind: QuestKind; target: number; title: string }) {
@@ -272,9 +261,24 @@
       <div class="brand-mark large">S</div>
       <div><span>NEW ADVENTURE</span><strong>创建你的学习角色</strong></div>
     </header>
-    <section class="onboarding-copy">
-      <h1>准备开始成长了吗？</h1>
-      <p>选择一个代表你学习方式的职业。职业目前只影响身份展示，不会限制成长路线。</p>
+    <section class="onboarding-hero">
+      <div class="onboarding-avatar-stage">
+        <CharacterAvatar
+          characterClass={characterClass}
+          size="large"
+          mood="idle"
+          label={`${localizedClass(characterClass)}角色预览`}
+        />
+        <div class="onboarding-avatar-caption">
+          <span>职业预览</span>
+          <strong>{localizedClass(characterClass)}</strong>
+          <small>选择后即可开始成长</small>
+        </div>
+      </div>
+      <div class="onboarding-copy">
+        <h1>准备开始成长了吗？</h1>
+        <p>选择一个代表你学习方式的职业。职业目前只影响身份展示，不会限制成长路线。</p>
+      </div>
     </section>
     <label class="character-name-label" for="character-name">冒险者名称</label>
     <input
@@ -285,18 +289,18 @@
       placeholder="输入你的名字"
       on:keydown={(event) => event.key === "Enter" && createFirstCharacter()}
     />
-    <div class="class-grid">
-      {#each characterClasses as item}
-        <button
-          class:selected={characterClass === item.id}
-          class="class-card"
-          on:click={() => (characterClass = item.id)}
-        >
-          <span>{item.icon}</span>
-          <div><strong>{item.name}</strong><small>{item.description}</small></div>
-        </button>
-      {/each}
-    </div>
+    <fieldset class="class-picker">
+      <legend class="visually-hidden">选择职业</legend>
+      <div class="class-grid">
+        {#each CHARACTER_CLASSES as item}
+          <label class:selected={characterClass === item.id} class="class-card">
+            <input type="radio" name="character-class" value={item.id} bind:group={characterClass} />
+            <CharacterAvatar characterClass={item.id} size="tiny" decorative />
+            <div><strong>{item.name}</strong><small>{item.description}</small></div>
+          </label>
+        {/each}
+      </div>
+    </fieldset>
     {#if errorMessage}<div class="error-banner onboarding-error">{errorMessage}</div>{/if}
     <button class="create-character-button" disabled={busy} on:click={createFirstCharacter}>
       {busy ? "正在创建…" : `以${localizedClass(characterClass)}身份开始冒险`}
@@ -311,7 +315,12 @@
   <main class:expanded={mode === "expanded"} class="companion-shell">
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <header class="companion-dragbar" on:mousedown={startDrag}>
-      <div class="brand-mark">S</div>
+      <CharacterAvatar
+        characterClass={dashboard.playerClass}
+        size="tiny"
+        mood={dashboard.activeSession ? "focus" : feedback ? "celebrate" : "idle"}
+        decorative
+      />
       <div class="brand-copy">
         <strong>Study RPG</strong>
         <span>{dashboard.activeSession ? "专注进行中" : "今日冒险待命"}</span>
@@ -395,7 +404,12 @@
         {#if feedback}
           <section aria-live="polite" class:daily-clear={feedback.dailyCompletionBonusXp > 0} class="feedback-card">
             <div class="feedback-summary">
-              <div class="feedback-spark">✦</div>
+              <CharacterAvatar
+                characterClass={dashboard.playerClass}
+                size="small"
+                mood="celebrate"
+                decorative
+              />
               <div class="feedback-copy">
                 <span>冒险结算</span>
                 <strong>{feedback.topic}</strong>
@@ -499,7 +513,14 @@
 {:else}
   <main class="dashboard-shell">
     <aside class="dashboard-sidebar">
-      <div class="dashboard-brand"><div class="brand-mark large">S</div><div><strong>Study RPG</strong><span>学习冒险日志</span></div></div>
+      <div class="dashboard-brand">
+        <CharacterAvatar
+          characterClass={dashboard.playerClass}
+          size="small"
+          label={`${localizedClass(dashboard.playerClass)}角色`}
+        />
+        <div><strong>Study RPG</strong><span>学习冒险日志</span></div>
+      </div>
       <nav>
         <a class="active" href="#overview">◈ 总览</a>
         <a href="#quests">◇ 每日任务</a>
@@ -507,9 +528,16 @@
         <a href="#statistics">⌁ 学习统计</a>
       </nav>
       <div class="sidebar-player">
-        <span>LV {dashboard.level}</span>
-        <strong>{dashboard.playerName}</strong>
-        <small>{localizedClass(dashboard.playerClass)} · {localizedTitle(dashboard.title)}</small>
+        <CharacterAvatar
+          characterClass={dashboard.playerClass}
+          size="tiny"
+          label={`${localizedClass(dashboard.playerClass)}头像`}
+        />
+        <div class="sidebar-player-copy">
+          <span>LV {dashboard.level}</span>
+          <strong>{dashboard.playerName}</strong>
+          <small>{localizedClass(dashboard.playerClass)} · {localizedTitle(dashboard.title)}</small>
+        </div>
       </div>
     </aside>
 
@@ -523,9 +551,15 @@
 
       <section class="overview-grid">
         <article class="player-card">
+          <CharacterAvatar
+            characterClass={dashboard.playerClass}
+            size="medium"
+            mood={dashboard.activeSession ? "focus" : "idle"}
+            label={`${localizedClass(dashboard.playerClass)}角色立绘`}
+          />
           <div class="level-emblem"><small>LEVEL</small><strong>{dashboard.level}</strong></div>
           <div class="player-progress">
-            <span>{localizedTitle(dashboard.title)}</span>
+            <span class="player-class">{localizedClass(dashboard.playerClass)} · {localizedTitle(dashboard.title)}</span>
             <strong>{dashboard.xpIntoLevel} / {dashboard.xpForNextLevel} XP</strong>
             <div class="progress-track large-track"><div style={`width: ${dashboard.xpProgressPercent}%`}></div></div>
           </div>
