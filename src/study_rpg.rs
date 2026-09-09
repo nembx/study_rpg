@@ -35,6 +35,10 @@ pub struct StudySessionResult {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StudyRpgError {
+    EmptySkillName,
+    UnknownSkillParent,
+    DuplicateSkillName,
+    UnknownSkill,
     StudySessionAlreadyActive,
     NoActiveStudySession,
     StudySessionTooShort,
@@ -95,6 +99,9 @@ pub struct DashboardSession {
 pub struct DashboardSkill {
     pub id: u64,
     pub name: String,
+    pub parent_id: Option<u64>,
+    pub depth: u32,
+    pub unlocked: bool,
     pub level: u32,
     pub total_xp: u32,
     pub xp_into_level: u32,
@@ -232,6 +239,32 @@ impl StudyRpg {
         id
     }
 
+    pub fn create_skill(
+        &mut self,
+        name: impl Into<String>,
+        parent_id: Option<u64>,
+    ) -> Result<u64, StudyRpgError> {
+        let name = name.into();
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(StudyRpgError::EmptySkillName);
+        }
+        if let Some(parent_id) = parent_id
+            && !self.skills.iter().any(|skill| skill.id == parent_id)
+        {
+            return Err(StudyRpgError::UnknownSkillParent);
+        }
+        if self
+            .skills
+            .iter()
+            .any(|skill| skill.parent_id == parent_id && skill.name.eq_ignore_ascii_case(name))
+        {
+            return Err(StudyRpgError::DuplicateSkillName);
+        }
+
+        Ok(self.add_skill(name, parent_id))
+    }
+
     pub fn ensure_root_skill(&mut self, name: impl Into<String>) -> u64 {
         let name = name.into();
         let name = name.trim();
@@ -253,6 +286,11 @@ impl StudyRpg {
     ) -> Result<ActiveStudySession, StudyRpgError> {
         if self.active_session.is_some() {
             return Err(StudyRpgError::StudySessionAlreadyActive);
+        }
+        if let Some(skill_id) = input.skill_id
+            && !self.skills.iter().any(|skill| skill.id == skill_id)
+        {
+            return Err(StudyRpgError::UnknownSkill);
         }
 
         let active_session = ActiveStudySession {
@@ -454,22 +492,15 @@ impl StudyRpg {
     }
 
     fn dashboard_skills(&self) -> Vec<DashboardSkill> {
-        self.skills
-            .iter()
-            .map(|skill| {
-                let progress = skill.level_progress();
-                DashboardSkill {
-                    id: skill.id,
-                    name: skill.name.clone(),
-                    level: progress.level,
-                    total_xp: progress.total_xp,
-                    xp_into_level: progress.xp_into_level,
-                    xp_for_next_level: progress.xp_for_next_level,
-                    xp_progress_percent: xp_progress_percent(progress),
-                    mastery_percent: skill.mastery_percent(),
-                }
-            })
-            .collect()
+        let mut dashboard_skills = Vec::with_capacity(self.skills.len());
+        let mut visited = Vec::with_capacity(self.skills.len());
+        append_dashboard_skills(&self.skills, None, 0, &mut visited, &mut dashboard_skills);
+        for skill in &self.skills {
+            if !visited.contains(&skill.id) {
+                append_dashboard_skill(&self.skills, skill, 0, &mut visited, &mut dashboard_skills);
+            }
+        }
+        dashboard_skills
     }
 
     fn recent_sessions(&self, limit: usize) -> Vec<DashboardSession> {
@@ -559,6 +590,55 @@ impl StudyRpg {
 
 fn default_daily_quests() -> Vec<Quest> {
     default_daily_quests_for_day(0)
+}
+
+fn append_dashboard_skills(
+    all_skills: &[Skill],
+    parent_id: Option<u64>,
+    depth: u32,
+    visited: &mut Vec<u64>,
+    output: &mut Vec<DashboardSkill>,
+) {
+    for skill in all_skills
+        .iter()
+        .filter(|skill| skill.parent_id == parent_id)
+    {
+        append_dashboard_skill(all_skills, skill, depth, visited, output);
+    }
+}
+
+fn append_dashboard_skill(
+    all_skills: &[Skill],
+    skill: &Skill,
+    depth: u32,
+    visited: &mut Vec<u64>,
+    output: &mut Vec<DashboardSkill>,
+) {
+    if visited.contains(&skill.id) {
+        return;
+    }
+    visited.push(skill.id);
+    let progress = skill.level_progress();
+    output.push(DashboardSkill {
+        id: skill.id,
+        name: skill.name.clone(),
+        parent_id: skill.parent_id,
+        depth,
+        unlocked: skill.unlocked,
+        level: progress.level,
+        total_xp: progress.total_xp,
+        xp_into_level: progress.xp_into_level,
+        xp_for_next_level: progress.xp_for_next_level,
+        xp_progress_percent: xp_progress_percent(progress),
+        mastery_percent: skill.mastery_percent(),
+    });
+    append_dashboard_skills(
+        all_skills,
+        Some(skill.id),
+        depth.saturating_add(1),
+        visited,
+        output,
+    );
 }
 
 fn default_daily_quests_for_day(epoch_day: u64) -> Vec<Quest> {

@@ -18,11 +18,12 @@
 - Daily Quest 进度
 - Statistics 基础汇总
 - 等级变化与技能成长历史
+- 基础技能树的创建、层级展示与学习关联
 
 暂缓实现：
 
 - 完整多页面视觉表现
-- 技能树编辑器
+- 完整技能树编辑器（重命名、移动、删除）
 - 世界地图
 - 成就、宠物、装备、云同步
 
@@ -33,6 +34,7 @@
 ```rust
 StudyRpg::new(player_name, class)
 StudyRpg::add_skill(name, parent)
+StudyRpg::create_skill(name, parent)
 StudyRpg::ensure_root_skill(name)
 StudyRpg::start_study_session(input, started_at)
 StudyRpg::finish_active_study_session(ended_at)
@@ -75,7 +77,7 @@ Dashboard 当前聚合：
 - 每日任务日期、单项进度、完成数、剩余数和总体进度百分比
 - 每日任务是否全清以及全清奖励 XP
 - 最近学习记录
-- 当前 Study Skill 的等级与 XP 进度
+- 当前 Study Skill 的父技能、层级深度、等级与 XP 进度，按父节点优先的顺序展示
 - 最近 12 条 Growth Event
 - 进行中的学习 Session、已计时分钟和预计 XP
 
@@ -118,7 +120,13 @@ V1 核心模块保持纯 Rust，便于测试。当前外层适配器：
 - `desktop`: 在 UI 与核心循环之间协调命令，并在状态变化后保存快照
 - `storage`: 通过 SQLite 读写完整的 `StudyRpg` 状态
 
-Companion 以正向计时和即时成长反馈为主要职责，提供收起卡片与展开面板两种形态；展开状态和纵向位置作为 UI 偏好保存在 SQLite。开始 Session 时填写的“成长技能”只是把本次学习归属到一个 Study Skill；新名称会创建根技能，同名名称会复用现有技能。这不是技能树编辑器，父子技能组织仍在 V1 暂缓范围内。Dashboard 直接消费 `StudyRpg::statistics_at(now)` 和 Dashboard 聚合数据，展示当前技能、最近成长、今日、本周、本月、累计汇总、最近七日学习时长和连续学习天数。七日桶的日历日期由核心统计模块提供，UI 不重新计算日期分组、等级或成长规则。
+Companion 以正向计时和即时成长反馈为主要职责，提供收起卡片与展开面板两种形态；展开状态和纵向位置作为 UI 偏好保存在 SQLite。开始 Session 时可通过完整技能路径选择已有技能，IPC 按技能 ID 关联，避免不同分支的同名技能混淆；也可输入新名称创建根技能，同名根技能忽略 ASCII 大小写复用。
+
+Dashboard 的技能树支持创建根技能和子技能。`StudyRpg::create_skill()` 统一去除名称首尾空白，拒绝空名称、不存在的父技能，以及同一父节点下忽略 ASCII 大小写的重名；不同分支允许同名。层级与排序由核心 Dashboard 提供，UI 只组合路径标签并渲染。Session XP 仅计入所选技能，不向父技能分摊。已有 `unlocked` 字段继续随快照保存，当前版本不使用它限制学习，也不引入解锁条件。
+
+技能创建和按 ID 开始学习都经过 `DesktopController` 保存快照；保存失败时恢复操作前的内存状态。父子关系沿用已有 SQLite 字段，无需新增表或迁移历史 Session。
+
+Dashboard 直接消费 `StudyRpg::statistics_at(now)` 和 Dashboard 聚合数据，展示技能树、最近成长、今日、本周、本月、累计汇总、最近七日学习时长和连续学习天数。七日桶的日历日期由核心统计模块提供，UI 不重新计算日期分组、等级或成长规则。
 
 未来可以替换视觉框架或拆分更多页面，但核心接口和 SQLite 快照边界不随 UI 技术变化。
 

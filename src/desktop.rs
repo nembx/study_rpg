@@ -113,6 +113,17 @@ impl DesktopController {
         self.start_session_with_skill(topic, None, started_at_epoch_seconds)
     }
 
+    pub fn create_skill(
+        &mut self,
+        name: &str,
+        parent_id: Option<u64>,
+    ) -> Result<u64, DesktopError> {
+        let previous_app = self.app()?.clone();
+        let skill_id = self.app_mut()?.create_skill(name, parent_id)?;
+        self.save_or_restore(previous_app)?;
+        Ok(skill_id)
+    }
+
     pub fn start_session_with_skill(
         &mut self,
         topic: &str,
@@ -141,6 +152,28 @@ impl DesktopController {
             self.app = Some(previous_app);
             return Err(error.into());
         }
+        self.save_or_restore(previous_app)
+    }
+
+    pub fn start_session_with_skill_id(
+        &mut self,
+        topic: &str,
+        skill_id: Option<u64>,
+        started_at_epoch_seconds: u64,
+    ) -> Result<(), DesktopError> {
+        let topic = topic.trim();
+        if topic.is_empty() {
+            return Err(DesktopError::EmptyTopic);
+        }
+
+        let previous_app = self.app()?.clone();
+        self.app_mut()?.start_study_session(
+            StudySessionStartInput {
+                topic: topic.to_string(),
+                skill_id,
+            },
+            started_at_epoch_seconds,
+        )?;
         self.save_or_restore(previous_app)
     }
 
@@ -225,6 +258,18 @@ impl Display for DesktopError {
             Self::EmptyTopic => formatter.write_str("请先输入学习主题"),
             Self::CharacterAlreadyCreated => formatter.write_str("角色已经创建"),
             Self::CharacterNotCreated => formatter.write_str("请先创建角色"),
+            Self::StudyRpg(StudyRpgError::EmptySkillName) => {
+                formatter.write_str("请先输入技能名称")
+            }
+            Self::StudyRpg(StudyRpgError::UnknownSkillParent) => {
+                formatter.write_str("选择的父技能不存在")
+            }
+            Self::StudyRpg(StudyRpgError::DuplicateSkillName) => {
+                formatter.write_str("同一层级已有同名技能")
+            }
+            Self::StudyRpg(StudyRpgError::UnknownSkill) => {
+                formatter.write_str("选择的成长技能不存在，请重新选择")
+            }
             Self::StudyRpg(StudyRpgError::StudySessionAlreadyActive) => {
                 formatter.write_str("已有正在进行的学习计时")
             }

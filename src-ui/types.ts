@@ -38,6 +38,7 @@ export interface SessionView {
 
 export interface ActiveSessionView {
   topic: string;
+  skillId: number | null;
   skillName: string | null;
   startedAtEpochSeconds: number;
   elapsedMinutes: number;
@@ -47,6 +48,9 @@ export interface ActiveSessionView {
 export interface SkillProgressView {
   id: number;
   name: string;
+  parentId: number | null;
+  depth: number;
+  unlocked: boolean;
   level: number;
   totalXp: number;
   xpIntoLevel: number;

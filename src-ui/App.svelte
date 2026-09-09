@@ -4,6 +4,8 @@
   import CharacterAvatar from "./CharacterAvatar.svelte";
   import { CHARACTER_CLASSES, characterClassName } from "./characterClasses";
   import DailyQuestStatus from "./DailyQuestStatus.svelte";
+  import SkillTree from "./SkillTree.svelte";
+  import { skillPathLabels } from "./skillLabels";
   import type {
     CompanionMode,
     CharacterClassId,
@@ -22,6 +24,7 @@
   let statistics: StatisticsView | null = null;
   let mode: CompanionMode = "compact";
   let topic = "";
+  let skillChoice = "";
   let skillName = "";
   let errorMessage = "";
   let feedback: SessionResultView | null = null;
@@ -38,6 +41,7 @@
   $: activeSeconds = dashboard?.activeSession
     ? Math.max(0, nowSeconds - dashboard.activeSession.startedAtEpochSeconds)
     : 0;
+  $: skillLabels = skillPathLabels(dashboard?.skills ?? []);
 
   onMount(() => {
     void initialize();
@@ -110,27 +114,45 @@
     }
   }
 
-  async function beginSession(chosenTopic = topic, chosenSkill = skillName) {
+  async function beginSession(chosenTopic = topic) {
+    if (busy) return;
     const trimmed = chosenTopic.trim();
     if (!trimmed) {
       await setMode("expanded");
       errorMessage = "请先输入学习主题";
       return;
     }
+    const newSkillName = skillChoice === "new" ? skillName.trim() : null;
+    if (skillChoice === "new" && !newSkillName) {
+      errorMessage = "请先输入新技能名称";
+      return;
+    }
 
     busy = true;
     try {
-      const trimmedSkill = chosenSkill.trim();
-      await invoke("start_session", { topic: trimmed, skillName: trimmedSkill || null });
+      await invoke("start_session", {
+        topic: trimmed,
+        skillId: skillChoice && skillChoice !== "new" ? Number(skillChoice) : null,
+        skillName: newSkillName,
+      });
       topic = "";
+      skillName = "";
       feedback = null;
       errorMessage = "";
       await refreshData(false);
+      if (dashboard?.activeSession) {
+        skillChoice = dashboard.activeSession.skillId?.toString() ?? "";
+      }
     } catch (error) {
       setError(error);
     } finally {
       busy = false;
     }
+  }
+
+  async function createStudySkill(name: string, parentId: number | null) {
+    await invoke<number>("create_skill", { name, parentId });
+    await refreshData(false);
   }
 
   async function completeSession() {
@@ -350,6 +372,11 @@
         {#if dashboard.activeSession}
           <strong class="topic-line">{dashboard.activeSession.topic}</strong>
           <span class="timer">{timerText(activeSeconds)}</span>
+          {#if mode === "expanded" && dashboard.activeSession.skillId !== null}
+            <span class="active-skill-name" title={skillLabels.get(dashboard.activeSession.skillId)}>
+              技能 · {skillLabels.get(dashboard.activeSession.skillId) ?? dashboard.activeSession.skillName}
+            </span>
+          {/if}
         {:else}
           <strong class="topic-line">准备开始今天的学习</strong>
           <span class="xp-line">{dashboard.xpIntoLevel} / {dashboard.xpForNextLevel} XP</span>
@@ -377,19 +404,26 @@
               <button class="primary-button" disabled={busy} on:click={() => beginSession()}>开始学习</button>
             </div>
             <div class="skill-field">
-              <div><label for="skill-name">成长技能</label><span>可选 · 新名称会自动创建</span></div>
-              <input
-                id="skill-name"
-                list="skill-options"
-                bind:value={skillName}
-                placeholder="例如：Rust"
-                on:keydown={(event) => event.key === "Enter" && beginSession()}
-              />
-              <datalist id="skill-options">
-                {#each dashboard.skills as skill}
-                  <option value={skill.name}></option>
+              <div><label for="study-skill">成长技能 · 可选</label><button class="skill-manage-link" on:click={openDashboard}>管理技能 ↗</button></div>
+              <select id="study-skill" class="skill-select" bind:value={skillChoice} disabled={busy}>
+                <option value="">不关联技能</option>
+                {#each dashboard.skills as skill (skill.id)}
+                  <option value={String(skill.id)}>{skillLabels.get(skill.id)}</option>
                 {/each}
-              </datalist>
+                <option value="new">＋ 新建根技能</option>
+              </select>
+              {#if skillChoice === "new"}
+                <label for="session-skill-name" class="visually-hidden">新技能名称</label>
+                <input
+                  id="session-skill-name"
+                  class="new-session-skill"
+                  bind:value={skillName}
+                  placeholder="新技能名称，例如：Rust"
+                  disabled={busy}
+                  on:keydown={(event) => event.key === "Enter" && !event.isComposing && beginSession()}
+                />
+                <span class="skill-input-hint">同名根技能会自动复用。</span>
+              {/if}
             </div>
             {#if recentTopics.length > 0}
               <div class="quick-topics">
@@ -524,6 +558,7 @@
       <nav>
         <a class="active" href="#overview">◈ 总览</a>
         <a href="#quests">◇ 每日任务</a>
+        <a href="#skills">⌘ 技能树</a>
         <a href="#growth">✦ 成长记录</a>
         <a href="#statistics">⌁ 学习统计</a>
       </nav>
@@ -604,22 +639,7 @@
       <section id="growth" class="growth-section">
         <div class="section-heading"><div><span>GROWTH LOG</span><h2>成长记录</h2></div><p>等级变化与技能积累会在 Session 结算后留下记录。</p></div>
         <div class="growth-columns">
-          <article class="dashboard-panel skill-progress-panel">
-            <div class="panel-heading"><div><span>STUDY SKILLS</span><h2>当前技能</h2></div><strong>{dashboard.skills.length}</strong></div>
-            {#if dashboard.skills.length === 0}
-              <p class="empty-state">开始学习时填写“成长技能”，这里会显示它的等级与经验。</p>
-            {:else}
-              <div class="skill-progress-list">
-                {#each dashboard.skills as skill}
-                  <div class="skill-progress-row">
-                    <div class="skill-progress-heading"><div><strong>{skill.name}</strong><span>LV {skill.level}</span></div><em>{skill.totalXp} XP</em></div>
-                    <div class="progress-track"><div style={`width: ${skill.xpProgressPercent}%`}></div></div>
-                    <div class="skill-progress-meta"><span>{skill.xpIntoLevel} / {skill.xpForNextLevel} XP</span><span>掌握度 {skill.masteryPercent}%</span></div>
-                  </div>
-                {/each}
-              </div>
-            {/if}
-          </article>
+          <SkillTree skills={dashboard.skills} oncreate={createStudySkill} />
 
           <article class="dashboard-panel growth-history-panel">
             <div class="panel-heading"><div><span>RECENT GROWTH</span><h2>最近成长</h2></div><strong>{dashboard.growthHistory.length}</strong></div>

@@ -1,6 +1,6 @@
 use study_rpg::{
     CharacterClass, CompanionMode, CompanionPreferences, DesktopController, GrowthEventKind,
-    SqliteStore,
+    SqliteStore, StudyRpgError,
 };
 
 #[cfg(unix)]
@@ -41,6 +41,131 @@ fn desktop_controller_records_growth_for_the_selected_skill_name() {
     assert!(history.iter().any(|event| matches!(
         &event.kind,
         GrowthEventKind::SkillGrowth { skill_name, .. } if skill_name == "Rust"
+    )));
+}
+
+#[test]
+fn desktop_controller_restores_a_child_skill_timer_and_its_growth() {
+    let database_path = std::env::temp_dir().join(format!(
+        "study-rpg-skill-tree-{}-{}.sqlite3",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+
+    {
+        let store = SqliteStore::open(&database_path).unwrap();
+        let mut desktop =
+            DesktopController::load_or_create(store, "Nembx", CharacterClass::Scholar, 1_000)
+                .unwrap();
+        let parent = desktop.create_skill("编程", None).unwrap();
+        let child = desktop.create_skill("Rust", Some(parent)).unwrap();
+        assert_eq!(child, 2);
+        assert_eq!(
+            desktop.dashboard_at(1_000).unwrap().skills[1].parent_id,
+            Some(parent)
+        );
+        desktop
+            .start_session_with_skill_id("Ownership", Some(child), 1_000)
+            .unwrap();
+    }
+
+    {
+        let store = SqliteStore::open(&database_path).unwrap();
+        let mut desktop = DesktopController::load(store, 1_000).unwrap();
+        let dashboard = desktop.dashboard_at(1_000).unwrap();
+        assert_eq!(dashboard.skills.len(), 2);
+        assert_eq!(dashboard.skills[1].name, "Rust");
+        assert_eq!(dashboard.skills[1].depth, 1);
+        assert_eq!(dashboard.active_session.unwrap().skill_id, Some(2));
+        let result = desktop.finish_session(1_000 + 25 * 60).unwrap();
+        assert_eq!(result.session.skill_id, Some(2));
+    }
+
+    {
+        let store = SqliteStore::open(&database_path).unwrap();
+        let mut desktop = DesktopController::load(store, 1_000 + 25 * 60).unwrap();
+        let dashboard = desktop.dashboard_at(1_000 + 25 * 60).unwrap();
+        assert!(dashboard.active_session.is_none());
+        assert_eq!(dashboard.skills[0].total_xp, 0);
+        assert_eq!(dashboard.skills[1].total_xp, 40);
+        assert!(dashboard.growth_history.iter().any(|event| matches!(
+            event.kind,
+            GrowthEventKind::SkillGrowth {
+                skill_id: 2,
+                gained_xp: 40,
+                ..
+            }
+        )));
+    }
+
+    std::fs::remove_file(database_path).unwrap();
+}
+
+#[test]
+fn desktop_controller_surfaces_invalid_skill_tree_input() {
+    let store = SqliteStore::in_memory().unwrap();
+    let mut desktop =
+        DesktopController::load_or_create(store, "Nembx", CharacterClass::Scholar, 1_000).unwrap();
+
+    assert!(matches!(
+        desktop.create_skill(" ", None),
+        Err(study_rpg::DesktopError::StudyRpg(
+            StudyRpgError::EmptySkillName
+        ))
+    ));
+}
+
+#[test]
+fn desktop_controller_grants_xp_to_the_selected_child_instead_of_a_same_named_root() {
+    let store = SqliteStore::in_memory().unwrap();
+    let mut desktop =
+        DesktopController::load_or_create(store, "Nembx", CharacterClass::Scholar, 1_000).unwrap();
+    let root = desktop.create_skill("Rust", None).unwrap();
+    let programming = desktop.create_skill("编程", None).unwrap();
+    let child = desktop.create_skill("Rust", Some(programming)).unwrap();
+
+    desktop
+        .start_session_with_skill_id("  Rust ownership  ", Some(child), 1_000)
+        .unwrap();
+    let result = desktop.finish_session(1_000 + 25 * 60).unwrap();
+    let dashboard = desktop.dashboard_at(1_000 + 25 * 60).unwrap();
+
+    assert_eq!(result.session.topic, "Rust ownership");
+    assert_eq!(result.session.skill_id, Some(child));
+    assert_eq!(dashboard.skills.len(), 3);
+    assert_eq!(
+        dashboard
+            .skills
+            .iter()
+            .find(|skill| skill.id == root)
+            .unwrap()
+            .total_xp,
+        0
+    );
+    assert_eq!(
+        dashboard
+            .skills
+            .iter()
+            .find(|skill| skill.id == programming)
+            .unwrap()
+            .total_xp,
+        0
+    );
+    assert_eq!(
+        dashboard
+            .skills
+            .iter()
+            .find(|skill| skill.id == child)
+            .unwrap()
+            .total_xp,
+        40
+    );
+    assert!(result.growth_events.iter().any(|event| matches!(
+        event.kind,
+        GrowthEventKind::SkillGrowth { skill_id, gained_xp: 40, .. } if skill_id == child
     )));
 }
 
@@ -244,4 +369,33 @@ fn desktop_controller_rolls_back_a_session_when_local_storage_fails() {
             .active_session
             .is_none()
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn desktop_controller_rolls_back_a_child_skill_when_local_storage_fails() {
+    let database_directory = std::env::temp_dir().join(format!(
+        "study-rpg-unsaved-skill-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir(&database_directory).unwrap();
+    let database_path = database_directory.join("study-rpg.sqlite3");
+    let store = SqliteStore::open(&database_path).unwrap();
+    let mut desktop =
+        DesktopController::load_or_create(store, "Nembx", CharacterClass::Scholar, 3_000).unwrap();
+    let parent = desktop.create_skill("编程", None).unwrap();
+    let before = desktop.dashboard_at(3_000).unwrap();
+
+    std::fs::remove_file(database_path).unwrap();
+    std::fs::remove_dir(database_directory).unwrap();
+
+    assert!(matches!(
+        desktop.create_skill("Rust", Some(parent)),
+        Err(DesktopError::Storage(_))
+    ));
+    assert_eq!(desktop.dashboard_at(3_000).unwrap(), before);
 }

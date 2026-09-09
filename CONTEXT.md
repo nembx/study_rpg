@@ -10,6 +10,7 @@ _Avoid_: 打卡、任务记录
 
 **Study Skill**:
 玩家希望通过 Study Session 持续培养的学习能力；同一技能可以跨多次 Session 累积 XP。
+技能可通过父子关系组织；一次 Session 的技能 XP 只归属所选节点，选择时以技能 ID 区分不同分支的同名能力。
 _Avoid_: 标签、主题分类
 
 **Growth Event**:

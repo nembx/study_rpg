@@ -50,6 +50,9 @@ struct DashboardView {
 struct SkillProgressView {
     id: u64,
     name: String,
+    parent_id: Option<u64>,
+    depth: u32,
+    unlocked: bool,
     level: u32,
     total_xp: u32,
     xp_into_level: u32,
@@ -129,6 +132,7 @@ struct SessionView {
 #[serde(rename_all = "camelCase")]
 struct ActiveSessionView {
     topic: String,
+    skill_id: Option<u64>,
     skill_name: Option<String>,
     started_at_epoch_seconds: u64,
     elapsed_minutes: u32,
@@ -275,15 +279,37 @@ fn get_companion_preferences(
 }
 
 #[tauri::command]
+fn create_skill(
+    name: String,
+    parent_id: Option<u64>,
+    state: State<'_, AppState>,
+) -> Result<u64, String> {
+    lock_controller(&state)?
+        .create_skill(&name, parent_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn start_session(
     topic: String,
     skill_name: Option<String>,
+    skill_id: Option<u64>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let mut controller = lock_controller(&state)?;
-    controller
-        .start_session_with_skill(&topic, skill_name.as_deref(), current_epoch_seconds())
-        .map_err(|error| error.to_string())
+    let skill_name = skill_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty());
+    match (skill_id, skill_name) {
+        (Some(_), Some(_)) => Err("请选择已有技能或填写新技能名称".to_string()),
+        (Some(id), None) => controller
+            .start_session_with_skill_id(&topic, Some(id), current_epoch_seconds())
+            .map_err(|error| error.to_string()),
+        (None, name) => controller
+            .start_session_with_skill(&topic, name, current_epoch_seconds())
+            .map_err(|error| error.to_string()),
+    }
 }
 
 #[tauri::command]
@@ -599,6 +625,9 @@ impl From<Dashboard> for DashboardView {
                 .map(|skill| SkillProgressView {
                     id: skill.id,
                     name: skill.name,
+                    parent_id: skill.parent_id,
+                    depth: skill.depth,
+                    unlocked: skill.unlocked,
                     level: skill.level,
                     total_xp: skill.total_xp,
                     xp_into_level: skill.xp_into_level,
@@ -643,6 +672,7 @@ impl From<Dashboard> for DashboardView {
                 .collect(),
             active_session: value.active_session.map(|session| ActiveSessionView {
                 topic: session.topic,
+                skill_id: session.skill_id,
                 skill_name: session.skill_name,
                 started_at_epoch_seconds: session.started_at_epoch_seconds,
                 elapsed_minutes: session.elapsed_minutes,
@@ -823,6 +853,7 @@ pub fn run() {
             get_dashboard,
             get_statistics,
             get_companion_preferences,
+            create_skill,
             start_session,
             finish_session,
             set_companion_mode,
@@ -851,7 +882,7 @@ mod tests {
     use tauri::webview::InvokeRequest;
 
     use super::{
-        AppState, DashboardView, SessionResultView, create_character, get_dashboard,
+        AppState, DashboardView, SessionResultView, create_character, create_skill, get_dashboard,
         get_startup_state, start_session,
     };
 
@@ -1017,6 +1048,64 @@ mod tests {
 
         assert_eq!(dashboard["activeSession"]["skillName"], "Rust");
         assert_eq!(dashboard["skills"][0]["name"], "Rust");
+    }
+
+    #[test]
+    fn ipc_creates_a_skill_branch_and_starts_learning_the_selected_child() {
+        let controller = DesktopController::load_or_create(
+            SqliteStore::in_memory().unwrap(),
+            "Nembx",
+            CharacterClass::Scholar,
+            1_000,
+        )
+        .unwrap();
+        let app = tauri::test::mock_builder()
+            .manage(AppState {
+                controller: std::sync::Mutex::new(controller),
+                move_generation: std::sync::atomic::AtomicU64::new(0),
+            })
+            .invoke_handler(tauri::generate_handler![
+                create_skill,
+                start_session,
+                get_dashboard
+            ])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let webview = WebviewWindowBuilder::new(&app, "companion", Default::default())
+            .build()
+            .unwrap();
+
+        let parent = invoke(
+            &webview,
+            "create_skill",
+            json!({ "name": "编程", "parentId": null }),
+        );
+        let child = invoke(
+            &webview,
+            "create_skill",
+            json!({ "name": "Rust", "parentId": parent }),
+        );
+        invoke(
+            &webview,
+            "create_skill",
+            json!({ "name": "Rust", "parentId": null }),
+        );
+        invoke(
+            &webview,
+            "start_session",
+            json!({ "topic": "Rust ownership", "skillId": child }),
+        );
+        let dashboard = invoke(&webview, "get_dashboard", json!({}));
+
+        assert_eq!(dashboard["activeSession"]["skillId"], child);
+        assert_eq!(dashboard["activeSession"]["skillName"], "Rust");
+        assert_eq!(dashboard["skills"][0]["parentId"], Value::Null);
+        assert_eq!(dashboard["skills"][0]["depth"], 0);
+        assert_eq!(dashboard["skills"][1]["id"], child);
+        assert_eq!(dashboard["skills"][1]["parentId"], parent);
+        assert_eq!(dashboard["skills"][1]["depth"], 1);
+        assert_eq!(dashboard["skills"][1]["unlocked"], false);
+        assert_eq!(dashboard["skills"].as_array().unwrap().len(), 3);
     }
 
     fn invoke(
