@@ -8,6 +8,12 @@ pub struct GrowthEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrowthHistoryPage {
+    pub events: Vec<GrowthEvent>,
+    pub next_before_id: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GrowthEventKind {
     PlayerLevelChange {
         gained_xp: u32,

@@ -142,3 +142,118 @@ fn dashboard_exposes_current_skill_progress_for_follow_up_sessions() {
     assert_eq!(skills[0].xp_for_next_level, 100);
     assert_eq!(skills[0].xp_progress_percent, 48);
 }
+
+#[test]
+fn growth_history_pages_reach_records_older_than_the_dashboard_preview() {
+    let mut app = StudyRpg::new("Nembx", CharacterClass::Scholar);
+    let rust = app.create_skill("Rust", None).unwrap();
+    for number in 1..=20 {
+        app.complete_study_session(StudySessionInput {
+            topic: format!("Rust session {number}"),
+            skill_id: Some(rust),
+            duration_minutes: 1,
+        });
+    }
+
+    let first = app.growth_history(None, None);
+    assert_eq!(app.dashboard().growth_history.len(), 12);
+    assert_eq!(
+        first
+            .events
+            .iter()
+            .map(|event| event.id)
+            .collect::<Vec<_>>(),
+        vec![20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9]
+    );
+    assert_eq!(first.next_before_id, Some(9));
+
+    let second = app.growth_history(None, first.next_before_id);
+    assert_eq!(
+        second
+            .events
+            .iter()
+            .map(|event| event.id)
+            .collect::<Vec<_>>(),
+        vec![8, 7, 6, 5, 4, 3, 2, 1]
+    );
+    assert_eq!(second.events.last().unwrap().topic, "Rust session 1");
+    assert_eq!(second.next_before_id, None);
+}
+
+#[test]
+fn skill_history_separates_same_named_branches_and_excludes_player_level_changes() {
+    let mut app = StudyRpg::new("Nembx", CharacterClass::Scholar);
+    let programming = app.create_skill("编程", None).unwrap();
+    let child = app.create_skill("Rust", Some(programming)).unwrap();
+    let root = app.create_skill("Rust", None).unwrap();
+    app.complete_study_session(StudySessionInput {
+        topic: "Child skill session".to_string(),
+        skill_id: Some(child),
+        duration_minutes: 30,
+    });
+    app.complete_study_session(StudySessionInput {
+        topic: "Root skill session".to_string(),
+        skill_id: Some(root),
+        duration_minutes: 1,
+    });
+
+    let child_history = app.growth_history(Some(child), None);
+    assert_eq!(child_history.events.len(), 1);
+    assert_eq!(child_history.events[0].topic, "Child skill session");
+    assert!(matches!(
+        child_history.events[0].kind,
+        GrowthEventKind::SkillGrowth { skill_id, .. } if skill_id == child
+    ));
+    assert_eq!(child_history.next_before_id, None);
+    assert_eq!(
+        app.growth_history(Some(root), None).events[0].topic,
+        "Root skill session"
+    );
+    assert!(
+        app.growth_history(Some(programming), None)
+            .events
+            .is_empty()
+    );
+    assert!(app.growth_history(Some(999), None).events.is_empty());
+}
+
+#[test]
+fn history_cursor_survives_restart_and_new_growth_without_repeating_older_records() {
+    let mut store = SqliteStore::in_memory().unwrap();
+    let mut app = StudyRpg::new("Nembx", CharacterClass::Scholar);
+    let rust = app.create_skill("Rust", None).unwrap();
+    for number in 1..=14 {
+        app.complete_study_session(StudySessionInput {
+            topic: format!("Rust session {number}"),
+            skill_id: Some(rust),
+            duration_minutes: 1,
+        });
+    }
+    let first = app.growth_history(Some(rust), None);
+    store.save(&app).unwrap();
+
+    let mut restored = store.load().unwrap().unwrap();
+    restored.complete_study_session_at(
+        StudySessionInput {
+            topic: "New growth".to_string(),
+            skill_id: Some(rust),
+            duration_minutes: 1,
+        },
+        2_000,
+    );
+    let older = restored.growth_history(Some(rust), first.next_before_id);
+    assert_eq!(
+        older
+            .events
+            .iter()
+            .map(|event| event.id)
+            .collect::<Vec<_>>(),
+        vec![2, 1]
+    );
+    assert_eq!(older.next_before_id, None);
+    assert_eq!(
+        restored.growth_history(Some(rust), None).events[0].topic,
+        "New growth"
+    );
+    assert!(restored.growth_history(None, Some(0)).events.is_empty());
+}

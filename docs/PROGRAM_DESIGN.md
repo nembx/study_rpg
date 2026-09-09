@@ -44,6 +44,7 @@ StudyRpg::refresh_daily_quests_at(now)
 StudyRpg::dashboard()
 StudyRpg::dashboard_at(now)
 StudyRpg::statistics_at(now)
+StudyRpg::growth_history(skill_id, before_id)
 ```
 
 调用方可以启动计时器，也可以手动提交一次学习结算。模块内部负责：
@@ -151,6 +152,10 @@ SqliteStore::load()
 平均值。UI 只渲染这些值，不重新定义任务进度规则。
 
 Growth Event 是 Session 完成时记录的不可变事实：技能实际获得 XP 时记录 `Skill Growth`，玩家跨过一个或多个等级阈值时记录 `Player Level Change`。事件通过 `StudyRpg::snapshot()` / `from_snapshot()` 进入 SQLite，恢复后继续使用递增事件 ID。旧数据库没有可靠的任务奖励、全清奖励和历史等级变化事实，因此不会从已有 Session 反推事件；成长历史从升级后完成的新 Session 开始。
+
+完整成长历史通过 `StudyRpg::growth_history(skill_id, before_id)` 查询，每次最多返回 12 条，按事件写入顺序从新到旧排列。`before_id` 是排除该事件的 ID 游标；返回的 `next_before_id` 为空表示已到最早记录。翻页期间新增事件不会让旧页重复或漏掉记录，重启后同一游标仍可继续使用。指定技能 ID 时只返回该技能自己的 Skill Growth，区分不同分支的同名技能。
+
+`GrowthHistory.svelte` 负责筛选、加载更早记录和失败重试，通过桌面命令消费核心查询结果。Dashboard 的最近 12 条预览继续保留，用最新事件 ID 提示有新的成长；浏览中的历史不会被定时刷新重置。记录标题仍使用事件保存时的名称，当前技能树仅用于筛选选项。查询沿用已保存的事件，不改变快照或 SQLite 表结构。
 
 ## 数据规则
 

@@ -12,7 +12,7 @@ pub mod xp;
 
 pub use companion::{CompanionDisplay, CompanionWindowBounds, companion_window_bounds};
 pub use desktop::{CompanionMode, CompanionPreferences, DesktopController, DesktopError};
-pub use growth::{GrowthEvent, GrowthEventKind};
+pub use growth::{GrowthEvent, GrowthEventKind, GrowthHistoryPage};
 pub use player::{CharacterClass, MAX_ENERGY, Player};
 pub use session::{ActiveStudySession, StudySession};
 pub use statistics::{CalendarDate, DailyStudyStatistics, StudyStatistics, StudyStatisticsReport};

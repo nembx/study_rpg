@@ -2,8 +2,8 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
 use crate::{
-    CharacterClass, Dashboard, SqliteStore, StudyRpg, StudyRpgError, StudySessionResult,
-    StudySessionStartInput, StudyStatisticsReport,
+    CharacterClass, Dashboard, GrowthHistoryPage, SqliteStore, StudyRpg, StudyRpgError,
+    StudySessionResult, StudySessionStartInput, StudyStatisticsReport,
 };
 
 pub struct DesktopController {
@@ -194,6 +194,14 @@ impl DesktopController {
         current_epoch_seconds: u64,
     ) -> Result<StudyStatisticsReport, DesktopError> {
         Ok(self.app()?.statistics_at(current_epoch_seconds))
+    }
+
+    pub fn growth_history(
+        &self,
+        skill_id: Option<u64>,
+        before_id: Option<u64>,
+    ) -> Result<GrowthHistoryPage, DesktopError> {
+        Ok(self.app()?.growth_history(skill_id, before_id))
     }
 
     pub fn finish_session(

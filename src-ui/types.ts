@@ -87,6 +87,11 @@ export interface GrowthEventView {
   details: GrowthEventDetailsView;
 }
 
+export interface GrowthHistoryPageView {
+  events: GrowthEventView[];
+  nextBeforeId: number | null;
+}
+
 export interface DashboardView {
   playerName: string;
   playerClass: CharacterClassId;

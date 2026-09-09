@@ -1,4 +1,4 @@
-use crate::growth::{GrowthEvent, GrowthEventKind};
+use crate::growth::{GrowthEvent, GrowthEventKind, GrowthHistoryPage};
 use crate::player::{CharacterClass, Player, XpGrant};
 use crate::quest::{Quest, QuestTarget, evaluate_quests, progress_for_quest};
 use crate::session::{
@@ -206,6 +206,33 @@ impl StudyRpg {
 
     pub fn growth_events(&self) -> &[GrowthEvent] {
         &self.growth_events
+    }
+
+    /// Returns up to 12 saved events, newest first, before the exclusive event ID cursor.
+    /// A skill filter includes only that skill's growth, without its parents or player levels.
+    pub fn growth_history(
+        &self,
+        skill_id: Option<u64>,
+        before_id: Option<u64>,
+    ) -> GrowthHistoryPage {
+        let mut matching_events = self.growth_events.iter().rev().filter(|event| {
+            before_id.is_none_or(|before_id| event.id < before_id)
+                && skill_id.is_none_or(|selected_id| {
+                    matches!(
+                        event.kind,
+                        GrowthEventKind::SkillGrowth { skill_id, .. } if skill_id == selected_id
+                    )
+                })
+        });
+        let events: Vec<_> = matching_events.by_ref().take(12).cloned().collect();
+        let next_before_id = matching_events
+            .next()
+            .and_then(|_| events.last().map(|event| event.id));
+
+        GrowthHistoryPage {
+            events,
+            next_before_id,
+        }
     }
 
     pub fn daily_quests(&self) -> &[Quest] {

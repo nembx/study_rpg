@@ -27,7 +27,7 @@ Study RPG 是一个 Local First 的学习成长软件。目标不是做另一个
 - 学习 Session 可选关联一个成长技能；同名根技能会忽略 ASCII 大小写复用
 - 在 Dashboard 创建根技能和子技能，按层级展示等级、XP 与掌握度；Companion 按完整技能路径选择学习归属
 - 学习结算会分别展示专注 XP、技能 XP、新完成的 Daily Quest、任务奖励、全清奖励与等级变化
-- 持久化记录玩家等级变化和技能成长事件，并在 Dashboard 展示当前技能进度与最近成长历史
+- 持久化记录玩家等级变化和技能成长事件，在 Dashboard 按技能筛选成长历史，并分批加载更早的记录
 - 提供独立 Dashboard 窗口，展示任务、最近记录和完整 Statistics
 - 关闭窗口后驻留系统托盘；学习计时与窗口偏好均可在重启后恢复
 - 提供 Statistics 页面，展示周期汇总、七日学习时长/XP 趋势和连续学习天数
@@ -90,6 +90,7 @@ src-ui/
 ├── CharacterAvatar.svelte   # 按职业渲染的像素角色立绘
 ├── characterClasses.ts      # 职业展示名称与说明的唯一映射
 ├── DailyQuestStatus.svelte   # Daily Quest 总进度与全清奖励状态
+├── GrowthHistory.svelte      # 成长历史筛选、分批加载与新记录提示
 ├── SkillTree.svelte          # 技能树展示与根技能、子技能创建
 ├── skillLabels.ts            # 技能选择与层级展示共用的路径标签
 ├── styles.css               # 桌面视觉样式
@@ -137,6 +138,7 @@ docs/
 - Statistics 汇总与七日学习时长柱状图、XP 折线图
 - 等级变化与技能成长历史、当前技能进度和结算即时反馈
 - 基础技能树、按技能 ID 关联学习，以及父子关系和子技能成长的本地恢复
+- 完整成长历史的分批查看、按技能筛选、读取失败重试与新成长提示
 - 基础测试
 
 下一步：

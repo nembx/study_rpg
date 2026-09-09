@@ -5,12 +5,14 @@
   import { CHARACTER_CLASSES, characterClassName } from "./characterClasses";
   import DailyQuestStatus from "./DailyQuestStatus.svelte";
   import SkillTree from "./SkillTree.svelte";
+  import GrowthHistory from "./GrowthHistory.svelte";
   import { skillPathLabels } from "./skillLabels";
   import type {
     CompanionMode,
     CharacterClassId,
     CompanionPreferencesView,
     DashboardView,
+    GrowthHistoryPageView,
     SessionResultView,
     QuestKind,
     StatisticsPeriodView,
@@ -155,6 +157,10 @@
     await refreshData(false);
   }
 
+  function loadGrowthHistory(skillId: number | null, beforeId: number | null) {
+    return invoke<GrowthHistoryPageView>("get_growth_history", { skillId, beforeId });
+  }
+
   async function completeSession() {
     const previousMode = mode;
     busy = true;
@@ -259,16 +265,6 @@
       .join(" ");
   }
 
-  function growthTime(epochSeconds: number | null) {
-    if (epochSeconds === null) return "手动结算";
-    return new Intl.DateTimeFormat("zh-CN", {
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).format(new Date(epochSeconds * 1000));
-  }
 </script>
 
 {#if !startupState}
@@ -641,30 +637,11 @@
         <div class="growth-columns">
           <SkillTree skills={dashboard.skills} oncreate={createStudySkill} />
 
-          <article class="dashboard-panel growth-history-panel">
-            <div class="panel-heading"><div><span>RECENT GROWTH</span><h2>最近成长</h2></div><strong>{dashboard.growthHistory.length}</strong></div>
-            {#if dashboard.growthHistory.length === 0}
-              <p class="empty-state">技能获得 XP 或角色升级后，成长事件会出现在这里。</p>
-            {:else}
-              <div class="growth-timeline">
-                {#each dashboard.growthHistory as event}
-                  <article class:level-event={event.details.kind === "playerLevelChange"} class="growth-event">
-                    <div class="growth-event-icon">{event.details.kind === "playerLevelChange" ? "↑" : "✦"}</div>
-                    <div class="growth-event-copy">
-                      <div class="growth-event-meta"><span>{event.details.kind === "playerLevelChange" ? "LEVEL CHANGE" : "SKILL GROWTH"}</span><time>{growthTime(event.occurredAtEpochSeconds)}</time></div>
-                      {#if event.details.kind === "playerLevelChange"}
-                        <strong>角色升级 · LV {event.details.levelBefore} → LV {event.details.levelAfter}</strong>
-                        <p>{event.topic} · +{event.details.gainedXp} XP · 累计 {event.details.totalXpAfter} XP</p>
-                      {:else}
-                        <strong>{event.details.skillName} · +{event.details.gainedXp} XP</strong>
-                        <p>{event.topic} · {event.details.levelAfter > event.details.levelBefore ? `技能升级 LV ${event.details.levelBefore} → LV ${event.details.levelAfter}` : `累计 ${event.details.totalXpAfter} XP`}</p>
-                      {/if}
-                    </div>
-                  </article>
-                {/each}
-              </div>
-            {/if}
-          </article>
+          <GrowthHistory
+            skills={dashboard.skills}
+            latestEventId={dashboard.growthHistory[0]?.id ?? null}
+            loadHistory={loadGrowthHistory}
+          />
         </div>
       </section>
 

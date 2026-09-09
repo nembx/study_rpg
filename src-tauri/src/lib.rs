@@ -8,8 +8,8 @@ use serde::Serialize;
 use study_rpg::{
     CalendarDate, CharacterClass, CompanionDisplay, CompanionMode, CompanionPreferences,
     CompanionWindowBounds, Dashboard, DashboardDailyQuestCompletion, DesktopController,
-    GrowthEvent, GrowthEventKind, SqliteStore, StudySessionResult, StudyStatistics,
-    StudyStatisticsReport, companion_window_bounds, quest::QuestTarget,
+    GrowthEvent, GrowthEventKind, GrowthHistoryPage, SqliteStore, StudySessionResult,
+    StudyStatistics, StudyStatisticsReport, companion_window_bounds, quest::QuestTarget,
 };
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -69,6 +69,13 @@ struct GrowthEventView {
     topic: String,
     occurred_at_epoch_seconds: Option<u64>,
     details: GrowthEventDetailsView,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrowthHistoryPageView {
+    events: Vec<GrowthEventView>,
+    next_before_id: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -265,6 +272,18 @@ fn get_statistics(state: State<'_, AppState>) -> Result<StatisticsView, String> 
     controller
         .statistics_at(current_epoch_seconds())
         .map(StatisticsView::from)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn get_growth_history(
+    skill_id: Option<u64>,
+    before_id: Option<u64>,
+    state: State<'_, AppState>,
+) -> Result<GrowthHistoryPageView, String> {
+    lock_controller(&state)?
+        .growth_history(skill_id, before_id)
+        .map(GrowthHistoryPageView::from)
         .map_err(|error| error.to_string())
 }
 
@@ -682,6 +701,19 @@ impl From<Dashboard> for DashboardView {
     }
 }
 
+impl From<GrowthHistoryPage> for GrowthHistoryPageView {
+    fn from(value: GrowthHistoryPage) -> Self {
+        Self {
+            events: value
+                .events
+                .into_iter()
+                .map(GrowthEventView::from)
+                .collect(),
+            next_before_id: value.next_before_id,
+        }
+    }
+}
+
 impl From<GrowthEvent> for GrowthEventView {
     fn from(value: GrowthEvent) -> Self {
         let details = match value.kind {
@@ -852,6 +884,7 @@ pub fn run() {
             create_character,
             get_dashboard,
             get_statistics,
+            get_growth_history,
             get_companion_preferences,
             create_skill,
             start_session,
@@ -883,7 +916,7 @@ mod tests {
 
     use super::{
         AppState, DashboardView, SessionResultView, create_character, create_skill, get_dashboard,
-        get_startup_state, start_session,
+        get_growth_history, get_startup_state, start_session,
     };
 
     #[test]
@@ -1106,6 +1139,55 @@ mod tests {
         assert_eq!(dashboard["skills"][1]["depth"], 1);
         assert_eq!(dashboard["skills"][1]["unlocked"], false);
         assert_eq!(dashboard["skills"].as_array().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn ipc_pages_saved_history_for_the_selected_skill_id() {
+        let mut core = StudyRpg::new("Nembx", CharacterClass::Scholar);
+        let programming = core.create_skill("编程", None).unwrap();
+        let child = core.create_skill("Rust", Some(programming)).unwrap();
+        let root = core.create_skill("Rust", None).unwrap();
+        for number in 1..=14 {
+            core.complete_study_session(StudySessionInput {
+                topic: format!("Child session {number}"),
+                skill_id: Some(child),
+                duration_minutes: 1,
+            });
+        }
+        core.complete_study_session(StudySessionInput {
+            topic: "Root session".to_string(),
+            skill_id: Some(root),
+            duration_minutes: 1,
+        });
+        let mut store = SqliteStore::in_memory().unwrap();
+        store.save(&core).unwrap();
+        let controller = DesktopController::load(store, 1_000).unwrap();
+        let app = tauri::test::mock_builder()
+            .manage(AppState {
+                controller: std::sync::Mutex::new(controller),
+                move_generation: std::sync::atomic::AtomicU64::new(0),
+            })
+            .invoke_handler(tauri::generate_handler![get_growth_history])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let webview = WebviewWindowBuilder::new(&app, "dashboard", Default::default())
+            .build()
+            .unwrap();
+
+        let all = invoke(&webview, "get_growth_history", json!({}));
+        assert_eq!(all["events"][0]["topic"], "Root session");
+        let first = invoke(&webview, "get_growth_history", json!({ "skillId": child }));
+        assert_eq!(first["events"].as_array().unwrap().len(), 12);
+        assert_eq!(first["events"][0]["details"]["skillId"], child);
+        assert_eq!(first["nextBeforeId"], 3);
+        let second = invoke(
+            &webview,
+            "get_growth_history",
+            json!({ "skillId": child, "beforeId": first["nextBeforeId"] }),
+        );
+        assert_eq!(second["events"].as_array().unwrap().len(), 2);
+        assert_eq!(second["events"][1]["topic"], "Child session 1");
+        assert_eq!(second["nextBeforeId"], Value::Null);
     }
 
     fn invoke(
